@@ -1,0 +1,52 @@
+-- ============================================================================
+-- 008_searches_user_created_at_idx.sql — el índice por usuario que faltaba en
+-- searches.
+--
+-- POR QUÉ EXISTE ESTE ARCHIVO: 004_searches.sql DESCRIBE el índice
+-- searches_user_created_at_idx a lo largo de medio bloque de comentarios (y
+-- explica largo por qué tiene que ser (user_id, created_at desc) y no uno
+-- simple por user_id), pero NUNCA LO ESCRIBIÓ: después de la última línea de
+-- comentario del archivo viene el EOF. El esquema quedaba con `searches` como la
+-- ÚNICA tabla del proyecto sin ningún índice, y eso se ve en \d searches.
+--
+-- No es cosmético: es la regla del proyecto, "toda tabla hija tiene índice por
+-- user_id", y con este índice faltando `searches` era la única de las seis que la
+-- incumplía. El resto del esquema la cumple de yapa:
+--   · skills      → skills_user_name_key (user_id, name)       [003]
+--   · profiles    → primary key (user_id)                      [002]
+--   · searches    → NADA                                       ← este archivo
+--   · job_history → job_history_user_key_key (user_id, key)    [005]
+--   · favorites   → favorites_user_key_key (user_id, key)      [006]
+--   · apify_usage → primary key (user_id, day)                 [007]
+--
+-- Y para esta tabla el índice no es un lujo ni una prophylaxis: el único acceso
+-- a `searches` es "las últimas N búsquedas de ESTE usuario, más recientes
+-- primero" (el historial de la UI, limit 20). Ese WHERE + ese ORDER BY + ese
+-- LIMIT son, literalmente, la forma del índice.
+--
+-- POR QUÉ UNA MIGRACIÓN NUEVA Y NO ARREGLAR 004:
+-- el runner aborta si un archivo ya aplicado cambia de checksum, y su propio
+-- mensaje dice qué hacer justo en este caso: "Si el cambio es real de esquema: NO
+-- toques este archivo. Escribí una migración nueva (00X_....sql) con los ALTER
+-- que correspondan". Editar 004 dejaría el repo en un estado donde ninguna base
+-- que ya corrió las 7 puede volver a aplicar nada. Agregar 008, en cambio,
+-- funciona sobre CUALQUIER base: la que ya tenía 004 aplicado y la que todavía
+-- no. Y como además es `if not exists`, correrlo dos veces no rompe nada.
+--
+-- `create index` NORMAL y no concurrently, por el mismo motivo que los otros
+-- ocho índices del esquema: el runner mete cada archivo en su propia transacción
+-- y CREATE INDEX CONCURRENTLY no puede ir dentro de una. La explicación completa
+-- está en 001_users.sql; el costo (un lock de escritura mientras arma el índice)
+-- es de milisegundos acá, porque la tabla está vacía en el momento en que esto se
+-- aplica por primera vez.
+--
+-- El nombre y el ORDEN de las columnas no son arbitrarios: son los que el
+-- comentario de 004 ya había elegido y los que la query del endpoint necesita.
+-- (user_id, created_at desc) → user_id a la izquierda para que el filtro por
+-- usuario no tenga que tocar la tabla, created_at DESC para que el ORDER BY se
+-- resuelva caminando el índice y el LIMIT 20 corte ahí, sin traer la historia
+-- entera del usuario a memoria para ordenarla con un sort.
+-- ============================================================================
+
+create index if not exists searches_user_created_at_idx
+  on searches (user_id, created_at desc);

@@ -1,0 +1,25 @@
+# Dependencias
+node_modules/
+frontend/node_modules/
+
+# Build artifact: `npm run build` lo regenera. Nunca se versiona.
+frontend/dist/
+dist/
+.vercel/
+
+# Secretos. NUNCA se commitean. Copiá .env.example a .env y poné los valores ahí.
+.env
+.env.*
+!.env.example
+*.env
+*.pem
+*.key
+*.p12
+*.pfx
+secrets/
+credentials.json
+
+# Logs y ruido local
+*.log
+npm-debug.log*
+.DS_Store

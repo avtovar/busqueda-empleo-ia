@@ -1,0 +1,576 @@
+/* ============================================================================
+   styles.css — Hoja de estilos GLOBAL de la app "BuscaEmpleo"
+   ----------------------------------------------------------------------------
+   ¿Qué contiene? Todo el tema visual del frontend:
+   - Variables CSS del tema oscuro (colores, radios, sombras).
+   - Layout de la app: header, panel del CV y panel de ofertas.
+   - Pestañas de región, toolbar (con el filtro de % de match mínimo), historial,
+     consultoras QA, tarjetas de oferta, modales, carta de presentación y página
+     de análisis "Propuesta de Interés".
+   - Una media query para que en pantallas chicas la grilla se apile.
+   ¿Dónde se importa? En main.jsx: `import './styles.css'`. Por eso aplica a
+   TODOS los componentes, sin necesidad de clases especiales por archivo.
+   ========================================================================== */
+
+/* ----- Variables del tema (paleta oscura) ----- */
+:root {
+  /* ↑ :root define variables CSS reutilizables. Se usan así: var(--bg), var(--accent)…
+     Cambiar un color acá cambia el tema ENTERO de la app.
+     Paleta v2: mismo esquema oscuro de antes pero más prolijo (fondos con menos
+     "ruido" azul plano) y acentos más vivos (violeta/cian) para que los botones,
+     links y degradados resalten más sobre el fondo. */
+  --bg: #f3f6f4;
+  /* ↑ Fondo principal de la página (azul-negro, más profundo que antes). */
+  --bg2: #ffffff;
+  /* ↑ Fondo secundario: paneles, tarjetas y controles (un tono más claro que --bg). */
+  --panel: #ffffff;
+  /* ↑ Color de los paneles/cards: un pelín más claro que bg2 para dar profundidad. */
+  --panel-hover: #f1f7f4;
+  /* ↑ Fondo de panel/card al pasar el mouse (hover), sutilmente más claro. */
+  --border: #d8e2dd;
+  /* ↑ Color de los bordes. Da "profundidad" a las cards sin usar shadow fuerte. */
+  --border-strong: #96aaa0;
+  /* ↑ Borde más marcado para hover/focus, sin llegar al color de acento. */
+  --text: #1c2925;
+  /* ↑ Color del texto principal (casi blanco, suave para no cansar la vista). */
+  --muted: #566760;
+  /* ↑ Color del texto secundario: subtítulos, notas, descripciones tenues. */
+  --accent: #17715c;
+  /* ↑ Violeta "acento" de la app: botones primarios, links y degradados. Más vivo
+     que el azul plano anterior. */
+  --accent2: #dd714f;
+  /* ↑ Segundo color del degradado (cian eléctrico). Juntos forman un gradiente
+     violeta→cian bien saturado, mucho más vivo que el azul→índigo original. */
+  --accent-glow: rgba(23, 113, 92, 0.18);
+  /* ↑ Color del "brillo" (glow) que aparece al hacer hover sobre botones primarios. */
+  --green: #16825d;
+  /* ↑ Verde-agua semántico: match alto, skills que tenés, badge activa. */
+  --yellow: #a56212;
+  /* ↑ Amarillo semántico: match medio, prioridad media. */
+  --red: #c14f59;
+  /* ↑ Rojo/rosado semántico: match bajo, brechas de skills. */
+  --radius: 10px;
+  /* ↑ Radio de esquinas de cards, paneles y modales (redondeado suave). */
+  --radius-sm: 6px;
+  /* ↑ Radio más chico para botones y controles pequeños. */
+  --shadow: 0 8px 22px rgba(24, 42, 34, 0.08);
+  /* ↑ Sombra que flota las cards sobre el fondo oscuro. */
+}
+
+/* Reset básico: todos los elementos calculan su tamaño incluyendo padding/borde
+   y arrancan sin márgenes ni padings propios del navegador. */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  /* ↑ Estilo base de toda la página: fuente del sistema, fondo con degradado. */
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  background: var(--page-background);
+  /* ↑ Fondo con un degradado radial violeta sutil arriba a la izquierda, sobre
+     el degradado lineal base. Da más profundidad que un simple gradiente plano. */
+  color: var(--text);
+  min-height: 100vh;
+  /* ↑ Que el fondo llene siempre toda la altura de la ventana. */
+}
+
+/* Contenedor central: limita el ancho y centra la app en pantallas grandes. */
+.app { max-width: 1200px; margin: 0 auto; padding: 16px; }
+
+/* ----- Header ----- */
+.header-inner { padding: 18px 4px 10px; display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
+.header-inner h1 {
+  /* ↑ Título con "texto degradado": el color sale del gradient, no de un color fijo. */
+  font-size: 1.9rem; background: linear-gradient(90deg, var(--accent), var(--accent2)); -webkit-background-clip: text; background-clip: text; color: transparent;
+  /* ↑ Para que el degradado pinte SOLO el texto, se recorta al texto y el color
+     se vuelve transparente. Es un truco clásico de CSS. */
+}
+.subtitle { color: var(--muted); margin-top: 4px; }
+.theme-toggle { background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 12px; cursor: pointer; font: inherit; font-size: 0.85rem; }
+.theme-toggle:hover { border-color: var(--accent); }
+.theme-toggle:focus-visible { outline: 3px solid var(--accent2); outline-offset: 3px; }
+
+/* ----- Layout principal: CV a la izquierda, ofertas a la derecha ----- */
+.layout { display: grid; grid-template-columns: 320px 1fr; gap: 18px; margin-top: 10px; }
+/* ↑ Grilla de 2 columnas: 320px fijos para el CV y el resto (1fr) para las ofertas. */
+
+/* Estilo base de cualquier panel/card: fondo, borde redondeado y sombra. */
+.panel { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; box-shadow: var(--shadow); }
+
+/* ----- CV ----- */
+.cv-header { display: flex; gap: 12px; align-items: center; margin-bottom: 14px; }
+.avatar {
+  /* ↑ Avatar circular con las iniciales (AT) y un degradado de fondo. */
+  width: 56px; height: 56px; border-radius: 50%; background: linear-gradient(135deg, var(--accent), var(--accent2)); display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 1.2rem; flex-shrink: 0;
+}
+.cv-header h2 { font-size: 1.05rem; line-height: 1.2; }
+.cv-role { font-size: 0.8rem; color: var(--accent); margin-top: 2px; }
+.cv-loc { font-size: 0.8rem; color: var(--muted); margin-top: 2px; }
+
+/* Cada bloque del CV (Sobre mí / Skills / Enlaces) se separa con un borde superior. */
+.cv-section { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+.cv-section h3 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-bottom: 8px; }
+.cv-summary { font-size: 0.85rem; line-height: 1.55; color: var(--text); }
+
+/* Pills de skills: texto chico, borde redondeado y fondo azul translúcido. */
+.skill-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.skill-tags .tag { background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.4); border-radius: 20px; padding: 3px 9px; font-size: 0.72rem; }
+
+.links { display: flex; flex-direction: column; gap: 6px; }
+.links a { color: var(--accent); text-decoration: none; font-size: 0.85rem; }
+.links a:hover { text-decoration: underline; }
+
+/* ----- Región tabs ----- */
+.region-tabs { display: flex; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
+.region-tabs-secondary { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+/* ↑ Fila de secciones (Propuesta de Interés / Consultoras) debajo de los países. */
+.region-tab {
+  /* ↑ Botón base de cada pestaña de región. */
+  background: var(--bg2); color: var(--muted); border: 1px solid var(--border); padding: 8px 14px; border-radius: 8px; cursor: pointer; font-size: 0.9rem; transition: 0.15s;
+  /* ↑ transition suaviza el cambio de color al pasar el mouse. */
+}
+.region-tab:hover { border-color: var(--accent2); color: var(--text); box-shadow: 0 0 0 1px var(--accent-glow); }
+.region-tab.active {
+  /* ↑ La pestaña seleccionada se pinta con el degradado acento y texto blanco. */
+  background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #fff; border-color: transparent; font-weight: 600;
+}
+
+.status { color: var(--muted); font-size: 0.9rem; margin-bottom: 10px; }
+
+/* La toolbar grew: la columna de status (texto + "actualizado hace X") crece para
+   usar el ancho, y los banners de confirmación bajan a su propia línea. */
+.toolbar-status-column { flex: 1 1 320px; min-width: 0; }
+.toolbar-status-column .status { margin-bottom: 0; }
+.status-checked { color: var(--muted); font-size: 0.78rem; opacity: 0.85; margin-top: 4px; }
+.save-banner {
+  flex: 1 0 100%; display: flex; align-items: flex-start; gap: 8px;
+  font-size: 0.84rem; padding: 9px 12px; border-radius: var(--radius-sm); margin-top: 10px;
+  border: 1px solid var(--border); background: var(--bg2); color: var(--muted);
+}
+.save-banner.ok { border-color: rgba(34, 197, 94, 0.45); color: var(--text); }
+/* ↑ Banner de confirmación del guardado. Antes NO existía: el backend ya
+   devolvía `saved` y nadie lo leía, así que el usuario no tenía forma de saber si
+   las ofertas se estaban guardando (media razón del reporte original). */
+.save-banner.warn { border-color: rgba(239, 68, 68, 0.5); color: var(--red); }
+.save-banner.warn span { color: var(--red); }
+
+/* Estadísticas de la corrida, plegadas: importan una vez por búsqueda, no en
+   cada scroll, así que van en <details> y el <summary> ya hace la pregunta que el
+   usuario se hace ("¿por qué veo menos de lo que pedí?"). */
+.stats-box { flex: 1 0 100%; margin-top: 8px; font-size: 0.82rem; color: var(--muted); }
+.stats-box summary { cursor: pointer; color: var(--accent); padding: 4px 0; }
+.stats-box summary:hover { text-decoration: underline; }
+.stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; margin-top: 8px; }
+.stats-grid .stat { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 10px; }
+.stats-grid dt { font-size: 0.76rem; }
+.stats-grid dd { font-size: 1.1rem; font-weight: 700; color: var(--text); margin-top: 2px; }
+.stats-grid dd.zero { color: var(--muted); font-weight: 500; opacity: 0.6; }
+/* ↑ Las filas en cero se atenúan: lo que sirve para entender una búsqueda que
+   "trajo menos" es dónde se perdieron ofertas, no una lista de ceros. */
+.stats-grid .stat-hint { display: block; font-size: 0.7rem; margin-top: 3px; opacity: 0.8; }
+
+/* Control de cuántas ofertas pedirle a Apify: mismo look que el select de orden. */
+.apify-limit-control { display: inline-flex; align-items: center; gap: 6px; font-size: 0.8rem; color: var(--muted); }
+.apify-limit-select { padding: 6px 8px; font-size: 0.8rem; }
+.apify-limit-select:disabled { opacity: 0.6; cursor: default; }
+.effective-limit { flex: 1 0 100%; font-size: 0.74rem; color: var(--muted); opacity: 0.85; margin-top: 2px; }
+/* ↑ "Última corrida: se pidieron N ofertas". Se muestra porque el número pedido es
+   un PISO y no un tope: sin esta línea, ver 78 ofertas con un botón que dice
+   "desde 200" parece un error. */
+/* ↑ La toolbar crece en alto con este bloque; .toolbar es flex-wrap, así que los
+   bloques con `flex: 1 0 100%` caen solos a una línea nueva. */
+
+/* ----- Toolbar (actualizar / historial) ----- */
+.toolbar { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+.toolbar .status { margin-bottom: 0; }
+.toolbar-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.btn.small { padding: 6px 12px; font-size: 0.8rem; margin: 0; }
+.btn.small.secondary.active {
+  /* ↑ El botón "historial" activo usa el degradado para indicar que está encendido. */
+  background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #fff; border-color: transparent;
+}
+.btn:disabled { opacity: 0.6; cursor: default; transform: none; box-shadow: none; filter: none; }
+/* ↑ Un botón deshabilitado (ej. "Actualizando…") no debe levantarse ni brillar al hover. */
+
+/* ----- Filtro de "% de match mínimo" (presets 0/25/50/100 + campo 80-100) ----- */
+.score-filter {
+  /* ↑ `flex: 1 0 100%` le pide al toolbar (que es flex con wrap) ocupar TODO el
+     ancho: por eso el filtro siempre cae en una línea nueva debajo de los
+     botones, sin tener que agregar un contenedor extra en el JSX. */
+  flex: 1 0 100%; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px;
+}
+.score-filter-label { font-size: 0.82rem; color: var(--muted); }
+/* ↑ Mismo tono y tamaño que el label del "Ordenar por" de la lista de ofertas. */
+.score-presets { display: flex; gap: 8px; flex-wrap: wrap; }
+/* ↑ Grupo de los cuatro presets: mismo display que .toolbar-actions, para que los
+   botones queden prolijos y con el mismo gap de 8px. */
+.score-filter-input {
+  /* ↑ Estilo calcado del select de orden (.job-sort-select): mismo fondo, borde y
+     radio, así el campo no parece un control de otro lado de la app. */
+  width: 72px; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--bg2); color: var(--text); font: inherit; font-size: 0.8rem;
+}
+.score-filter-input.custom {
+  /* ↑ Modo "a medida": el campo se pinta con el color de acento y en negrita, para
+     que se distinga de un preset encendido (que se pinta con el degradado). Los
+     dos modos son excluyentes: nunca hay un preset y un custom activos a la vez.
+     Se usan variables del tema, así el acento funciona igual en claro y oscuro. */
+  border-color: var(--accent); color: var(--accent); font-weight: 700;
+}
+.score-filter-input:focus-visible { outline: 3px solid var(--accent2); outline-offset: 2px; }
+/* ↑ Accesibilidad: aro de foco visible, como en el resto de los controles. */
+.score-filter-hint { font-size: 0.74rem; color: var(--muted); }
+/* ↑ Texto de ayuda o de error al lado del campo. */
+.score-filter-hint.error { color: var(--red); }
+/* ↑ El error se pinta con el rojo semántico del tema (--red), no con un color fijo,
+   así se lee igual de bien en modo claro y en modo oscuro. */
+
+/* ----- Historial desde enero 2026 ----- */
+.job-history { margin-top: 8px; }
+.badge { display: inline-block; font-size: 0.72rem; padding: 3px 9px; border-radius: 20px; }
+.badge-active { background: rgba(34, 197, 94, 0.18); color: var(--green); border: 1px solid rgba(34, 197, 94, 0.4); }
+.badge-inactive { background: rgba(148, 163, 184, 0.15); color: var(--muted); border: 1px solid var(--border); }
+
+/* ----- Consultoras QA (outreach tracker) ----- */
+.region-tab.consultoras-tab { margin-left: auto; }
+/* ↑ La tab "Consultoras" se empuja a la derecha con margin-left auto. */
+
+/* Pills de categoría de cada consultora: cada una con su color semántico. */
+.cat-pill { font-size: 0.68rem; padding: 3px 10px; border-radius: 20px; white-space: nowrap; border: 1px solid transparent; }
+.cat-qa { background: rgba(34, 197, 94, 0.15); color: var(--green); border-color: rgba(34, 197, 94, 0.35); }
+.cat-it { background: rgba(59, 130, 246, 0.15); color: #3b82f6; border-color: rgba(59, 130, 246, 0.35); }
+.cat-multi { background: rgba(245, 158, 11, 0.18); color: #b45309; border-color: rgba(245, 158, 11, 0.4); }
+.cat-staffing { background: rgba(236, 72, 153, 0.15); color: #db2777; border-color: rgba(236, 72, 153, 0.35); }
+.cat-fintech { background: rgba(16, 185, 129, 0.15); color: #10b981; border-color: rgba(16, 185, 129, 0.35); }
+.cat-gov { background: rgba(139, 92, 246, 0.15); color: var(--gov-color); border-color: rgba(139, 92, 246, 0.35); }
+
+.consultora-card .job-top { justify-content: flex-start; gap: 12px; }
+.consultora-logo {
+  /* ↑ Cuadrado blanco que contiene el favicon (logo) de la consultora. */
+  width: 40px; height: 40px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; border-radius: 10px; background: #fff; border: 1px solid var(--border); overflow: hidden;
+}
+.consultora-logo img { width: 100%; height: 100%; object-fit: contain; padding: 4px; }
+.consultora-logo-init {
+  /* ↑ Placeholder circular cuando la consultora no tiene dominio: la inicial. */
+  width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 1.1rem; color: #fff; background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+}
+.consultora-card .cat-pill { margin-left: auto; }
+
+/* Filtro y controles del tracker de contacto. */
+.consultoras-filter { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+.filter-label { font-size: 0.85rem; color: var(--muted); }
+.consultoras-filter .estado-select { min-width: 250px; }
+.consultora-controls { margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.estado-select { padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg2); font-size: 0.82rem; color: var(--text); }
+.notas-input { flex: 1; min-width: 180px; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border); font-size: 0.82rem; background: var(--bg2); color: var(--text); }
+
+/* ----- Lista de ofertas ----- */
+.job-list { display: flex; flex-direction: column; gap: 12px; }
+.job-list-controls { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin: 0 0 10px; }
+.job-sort-control { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 0.82rem; }
+.job-sort-select { padding: 7px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg2); color: var(--text); font: inherit; }
+.job-card {
+  background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; transition: transform 0.12s, border-color 0.12s; box-shadow: var(--shadow);
+}
+.job-card:hover { transform: translateY(-2px); border-color: var(--accent2); box-shadow: var(--hover-shadow), 0 0 0 1px var(--accent-glow); }
+.job-open { display: block; width: 100%; padding: 0; border: 0; background: transparent; color: inherit; text-align: left; font: inherit; cursor: pointer; }
+.job-open:focus-visible, .job-dismiss:focus-visible, .job-sort-select:focus-visible { outline: 3px solid var(--accent2); outline-offset: 3px; }
+.job-dismiss { display: block; margin: 10px 0 0 auto; padding: 4px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: transparent; color: var(--muted); font: inherit; font-size: 0.74rem; cursor: pointer; }
+.job-dismiss:hover { border-color: var(--red); color: var(--red); }
+/* ↑ Además de levantarse, ahora el borde se pinta cian y aparece un aro de glow
+   violeta sutil, en línea con el resto de los elementos interactivos. */
+.job-card .job-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.job-card .job-title { font-size: 1rem; font-weight: 600; }
+.job-card .job-company { color: var(--muted); font-size: 0.85rem; }
+
+/* Procedencia de la oferta: en qué portal se encontró. La línea va aparte de la
+   empresa porque "source" ("Reclutador (LinkedIn)", "Directo (link)") pegado al
+   nombre de la empresa parecía parte de ella. */
+.job-origin { display: flex; align-items: center; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
+.job-source { font-size: 0.72rem; color: var(--muted); opacity: 0.8; }
+.job-origin .portal-badge { margin-left: 0; }
+/* ↑ El .lang-badge usa margin-left:auto para pegarse al % de match; el badge de
+   portal NO, porque vive en otra línea y tiene que quedarse a la izquierda. */
+.portal-badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 0.72rem; font-weight: 600; padding: 3px 9px; border-radius: 20px;
+  white-space: nowrap; border: 1px solid var(--border); background: var(--bg); color: var(--muted);
+}
+.portal-linkedin { background: rgba(10, 102, 194, 0.14); color: #0a66c2; border-color: rgba(10, 102, 194, 0.4); }
+.portal-remotive { background: rgba(16, 185, 129, 0.14); color: #0e9f6e; border-color: rgba(16, 185, 129, 0.4); }
+.portal-remoteok { background: rgba(59, 130, 246, 0.14); color: #3b82f6; border-color: rgba(59, 130, 246, 0.4); }
+.portal-curada, .portal-himalayas { background: rgba(139, 92, 246, 0.14); color: #7c5cf0; border-color: rgba(139, 92, 246, 0.4); }
+.portal-demo { background: rgba(148, 163, 184, 0.16); color: var(--muted); }
+/* ↑ Una clase por portal conocido. Los colores salen de la misma familia que el
+   resto del tema (no se inventan tonos nuevos) y en todos los casos el texto va
+   con su fondo tinted para mantener el contraste legible en claro y en oscuro. */
+
+/* Fila de acciones al pie de la tarjeta: el link a la oferta y "Quitar de mi
+   lista". El link NO puede ir dentro del <button> de la tarjeta (HTML inválido),
+   así que esta fila es la razón estructural de que exista. */
+.job-actions-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+.job-link {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 0.8rem; font-weight: 600; color: var(--accent); text-decoration: none;
+  padding: 5px 10px; border-radius: var(--radius-sm); border: 1px solid transparent;
+}
+.job-link:hover { text-decoration: underline; border-color: var(--accent); }
+.job-link:focus-visible { outline: 3px solid var(--accent2); outline-offset: 2px; }
+.job-link.search { color: var(--yellow); }
+/* ↑ El link a la BÚSQUEDA se pinta distinto del link a la OFERTA: son acciones
+   distintas (una abre la publicación, la otra ayuda a encontrarla) y conviene
+   que se distingan de un vistazo. */
+.job-link.none { color: var(--muted); font-weight: 500; border-style: dashed; border-color: var(--border); cursor: help; }
+/* ↑ Sin destino: se dice explícitamente en vez de esconder la fila, porque 18 de
+   las 57 ofertas curadas no tienen ningún link y el botón que aparecía y
+   desaparecía hacía pensar que la app estaba rota. */
+
+/* Pill del % de match: color según el score (verde/amarillo/rojo). */
+.job-card .match-pill { font-weight: 700; padding: 4px 10px; border-radius: 20px; font-size: 0.8rem; flex-shrink: 0; }
+.match-high { background: rgba(34, 197, 94, 0.2); color: var(--green); }
+.match-mid { background: rgba(234, 179, 8, 0.2); color: var(--yellow); }
+.match-low { background: rgba(239, 68, 68, 0.2); color: var(--red); }
+
+/* Etiqueta de idioma (ES / EN) detectada del texto de la oferta: es PURAMENTE
+   informativa, no filtra ni hace nada. Por eso se ve como una "chiapa" neutra
+   (borde + texto atenuado del tema) y NO como un botón: sin cursor:pointer, sin
+   estado hover y sin tabindex, para que nadie piense que se puede clickear. */
+.lang-badge {
+  display: inline-block; flex-shrink: 0;
+  font-size: 0.68rem; font-weight: 700; letter-spacing: 0.06em;
+  padding: 3px 9px; border-radius: 20px; white-space: nowrap;
+  background: var(--bg); color: var(--muted); border: 1px solid var(--border);
+  /* ↑ Todos los colores salen de variables del tema: la misma chiapa se ve bien
+     en modo claro y en modo oscuro sin tener dos reglas distintas. */
+}
+.job-card .lang-badge { margin-left: auto; }
+/* ↑ En la tarjeta el .job-top es flex con space-between, así que este margen
+   empuja la etiqueta pegada al pill de % de match y las dos quedan siempre
+   juntas, a la derecha. En el modal NO se aplica: ahí la etiqueta fluye sola
+   dentro del .detail-meta, que ya es flex-wrap. */
+.lang-badge-weak { opacity: 0.62; border-style: dashed; }
+/* ↑ Confianza baja (poco texto para decidir, o texto que parece estar en otro
+   idioma): se ATENÚA y el borde pasa a punteado, para que se lea como
+   "estimado" y no como una dato firme. La opacidad baja el contraste justamente
+   para marcar esa duda sin inventar un tercer estado de idioma. */
+
+/* Texto solo para lectores de pantalla: invisible a la vista, se lee igual.
+   Es el patrón estándar de accesibilidad (WCAG 2.1 - 1.3.1 / 4.1.2): el chip
+   muestra "ES" a la vista pero un lector de pantalla anuncia "ES (castellano)". */
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%);
+  white-space: nowrap; border: 0;
+}
+
+.job-card .job-meta { display: flex; gap: 12px; margin-top: 8px; font-size: 0.8rem; color: var(--muted); flex-wrap: wrap; }
+.job-card .job-skill-preview { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 5px; }
+.pagination { display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 16px; flex-wrap: wrap; }
+.pagination .btn.small { margin: 0; }
+.pagination-info { color: var(--muted); font-size: 0.85rem; }
+.job-card .job-skill-preview .mini { background: var(--bg2); border-radius: 12px; padding: 2px 8px; font-size: 0.7rem; color: var(--muted); }
+
+/* Mensaje de "sin resultados": borde punteado centrado y texto tenue. */
+.empty { text-align: center; color: var(--muted); padding: 40px; border: 1px dashed var(--border); border-radius: var(--radius); }
+
+/* ----- Modal ----- */
+.modal {
+  /* ↑ Capa oscura a pantalla completa que "tapa" el fondo y centra el contenido.
+     position: fixed + inset: 0 lo estira sobre toda la ventana. */
+  position: fixed; inset: 0; background: rgba(0, 0, 0, 0.7); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 16px;
+}
+.modal.hidden { display: none; }
+.modal-content {
+  /* ↑ Caja blanca del modal: ancho máximo 640px y scroll interno si el contenido
+     supera el 85% del alto de la pantalla. */
+  background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); max-width: 640px; width: 100%; max-height: 85vh; overflow-y: auto; padding: 22px; position: relative; box-shadow: var(--shadow);
+}
+.modal-content.letter { max-width: 760px; }
+.modal-close { position: absolute; top: 10px; right: 14px; background: none; border: none; color: var(--muted); font-size: 1.6rem; cursor: pointer; }
+.modal-close:hover { color: var(--text); }
+
+/* Detalle de la oferta dentro del modal. */
+.detail-title { font-size: 1.3rem; margin-bottom: 10px; }
+.detail-meta { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; font-size: 0.85rem; }
+.detail-meta .chip { background: var(--bg); border: 1px solid var(--border); border-radius: 20px; padding: 4px 10px; }
+.detail-meta .chip.muted { opacity: 0.75; font-size: 0.8rem; }
+.chip-link {
+  color: var(--accent); text-decoration: none; cursor: pointer;
+  border-color: var(--accent) !important;
+}
+.chip-link:hover { text-decoration: underline; }
+.chip-link:focus-visible { outline: 3px solid var(--accent2); outline-offset: 2px; }
+/* ↑ El chip de procedencia del modal: el nombre del portal va en <strong> (es
+   el dato que se está buscando) y el link a la búsqueda va aparte, porque son
+   dos acciones distintas y una no implica la otra. */
+.btn.disabled-note { cursor: help; opacity: 0.75; box-shadow: none; background: var(--bg2); color: var(--muted); border: 1px dashed var(--border); font-weight: 500; }
+/* ↑ Botón SIN destino (no hay link de postulación ni de búsqueda): se dibuja
+   igual, con estilo atenuado, para que el modal nunca parezca que le falta algo. */
+.btn.disabled-note:hover { transform: none; filter: none; box-shadow: none; }
+.detail-section { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+.detail-section h4 { color: var(--muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+.company-summary { background: rgba(99, 102, 241, 0.12); border-left: 3px solid var(--accent2); padding: 10px 12px; border-radius: 6px; font-size: 0.9rem; line-height: 1.5; }
+.skills-wanted { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.skills-wanted .w { background: rgba(34, 197, 94, 0.15); border: 1px solid rgba(34, 197, 94, 0.4); border-radius: 20px; padding: 3px 9px; font-size: 0.75rem; }
+.gap-skills .g { background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.4); border-radius: 20px; padding: 3px 9px; font-size: 0.75rem; }
+.description { font-size: 0.9rem; line-height: 1.6; color: var(--text); }
+
+/* Botones: primarios con degradado acento vivo + glow, y secundarios "fantasma"
+   que se iluminan al hover. Todos con una transición pareja y un estado :active
+   que "hunde" el botón para dar feedback táctil al click. */
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  color: #fff; border: none; padding: 10px 18px; border-radius: var(--radius-sm);
+  cursor: pointer; font-weight: 600; text-decoration: none; font-size: 0.9rem;
+  margin-right: 8px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
+}
+.btn:hover { filter: brightness(1.1); transform: translateY(-1px); box-shadow: 0 6px 20px var(--accent-glow); }
+/* ↑ Al pasar el mouse: se aclara un poco, se "levanta" 1px y aparece un glow
+   violeta/cian detrás, para que se sienta más vivo que un simple cambio de color. */
+.btn:active { transform: translateY(0); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3); }
+/* ↑ Al hacer click: vuelve a su lugar y la sombra se achica (efecto de "apretado"). */
+.btn:focus-visible { outline: 2px solid var(--accent2); outline-offset: 2px; }
+/* ↑ Accesibilidad: quien navega con teclado ve un aro cian claro alrededor del botón. */
+
+.btn.secondary {
+  background: var(--bg2); color: var(--text); border: 1px solid var(--border); margin: 0;
+  box-shadow: none;
+}
+.btn.secondary:hover { border-color: var(--accent2); color: #fff; box-shadow: 0 4px 16px rgba(0, 194, 255, 0.18); }
+/* ↑ El botón secundario no tiene degradado, pero al hover el borde y la sombra
+   toman el color de acento cian para que también se sienta "vivo". */
+
+.btn-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+
+/* ----- Carta ----- */
+.letter-body {
+  /* ↑ El cuerpo de la carta es un bloque claro sobre fondo oscuro: se ve como una
+     hoja. white-space: pre-wrap respeta los saltos de línea que trajo el backend. */
+  white-space: pre-wrap; font-size: 0.95rem; line-height: 1.7; margin-top: 10px; background: #f8fafc; color: #0f172a; padding: 20px; border-radius: 8px;
+}
+.letter-actions { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+
+/* ----- Propuesta de Interés (análisis de mercado vs CV) ----- */
+.analysis-head { margin-bottom: 14px; display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.analysis-title { flex: 1 1 300px; }
+.analysis-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.analysis-head h2 {
+  /* ↑ Título de la página con el mismo texto degradado que el header. */
+  font-size: 1.35rem; background: linear-gradient(90deg, var(--accent), var(--accent2)); -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.analysis-head p { color: var(--muted); margin-top: 4px; font-size: 0.9rem; line-height: 1.5; }
+
+/* Grilla de KPIs: se adapta sola a la cantidad de columnas según el ancho. */
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 16px; }
+.kpi { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; }
+.kpi-value { font-size: 1.7rem; font-weight: 800; background: linear-gradient(90deg, var(--accent), var(--accent2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.kpi-label { font-size: 0.82rem; color: var(--muted); margin-top: 2px; }
+.kpi-sub { font-size: 0.72rem; color: var(--muted); opacity: 0.85; }
+
+.source-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+.source-card { min-width: 0; background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 14px; }
+.source-heading { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 10px; }
+.source-heading h4 { font-size: 0.95rem; }
+.source-status { color: var(--muted); font-size: 0.72rem; text-align: right; }
+.source-title { font-size: 0.85rem; font-weight: 600; line-height: 1.45; overflow-wrap: anywhere; }
+.source-detail, .source-summary, .source-note { color: var(--muted); font-size: 0.78rem; line-height: 1.5; margin-top: 7px; }
+.source-link { display: inline-block; margin-top: 10px; color: var(--accent); font-size: 0.82rem; text-decoration: none; }
+.source-link:hover { text-decoration: underline; }
+.source-more { margin-top: 10px; }
+.source-more summary { color: var(--accent); cursor: pointer; font-size: 0.78rem; }
+.source-more .skill-tags { margin-top: 8px; }
+.github-evidence { display: flex; flex-direction: column; }
+.evidence-row { display: grid; grid-template-columns: minmax(110px, 0.35fr) 1fr; gap: 10px; align-items: start; padding: 9px 0; border-bottom: 1px solid var(--border); font-size: 0.82rem; }
+.evidence-projects { display: flex; flex-wrap: wrap; gap: 6px 12px; }
+.evidence-projects a { color: var(--accent); text-decoration: none; overflow-wrap: anywhere; }
+.evidence-projects a:hover { text-decoration: underline; }
+
+/* Cada sección del análisis separada por borde superior, modo "documento". */
+.analisis-section { margin-top: 20px; padding-top: 14px; border-top: 1px solid var(--border); }
+.analisis-section h3 { font-size: 0.82rem; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-bottom: 8px; }
+.analisis-note { font-size: 0.8rem; color: var(--muted); margin-bottom: 10px; }
+
+/* Barras horizontales de demanda. La barra se pinta con un degradado ancho y
+   la UI le setea el width% inline (style={{ width: ... }}). */
+.bars { display: flex; flex-direction: column; gap: 8px; }
+.bar-row { display: flex; flex-direction: column; gap: 3px; }
+.bar-label { font-size: 0.82rem; color: var(--text); }
+.bar-label .bar-pct { color: var(--muted); }
+.bar-track { position: relative; height: 18px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.bar-fill { height: 100%; border-radius: 6px; background: linear-gradient(90deg, var(--accent), var(--accent2)); transition: width 0.4s ease; }
+.bar-fill.region { background: linear-gradient(90deg, var(--green), #34d399); }
+.bar-row.have .bar-fill { background: linear-gradient(90deg, var(--green), #34d399); }
+.bar-row.gap .bar-fill { background: linear-gradient(90deg, var(--red), #f97316); }
+.badge-cv { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); font-size: 0.65rem; font-weight: 700; color: #052e16; background: rgba(34, 197, 94, 0.35); padding: 1px 7px; border-radius: 10px; }
+
+/* Chips de brechas (rojos) y de fortalezas (verdes). */
+.gap-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.gap-chip { background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.45); color: var(--gap-color); border-radius: 20px; padding: 4px 11px; font-size: 0.8rem; }
+.strengths { display: flex; flex-wrap: wrap; gap: 8px; }
+.strong-chip { background: rgba(34, 197, 94, 0.12); border: 1px solid rgba(34, 197, 94, 0.4); color: var(--green); border-radius: 20px; padding: 4px 11px; font-size: 0.8rem; }
+
+.region-bars { display: flex; flex-direction: column; gap: 10px; }
+
+/* Tarjetas de proyectos: grilla adaptativa con nombre, lenguaje y demo. */
+.projects { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; }
+.project-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; }
+.project-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.project-head a { color: var(--accent); font-size: 0.9rem; text-decoration: none; }
+.project-head a:hover { text-decoration: underline; }
+.project-lang { font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); border: 1px solid var(--border); border-radius: 10px; padding: 1px 8px; white-space: nowrap; }
+.project-desc { font-size: 0.8rem; color: var(--muted); line-height: 1.45; margin: 0; }
+.project-demo { font-size: 0.78rem; color: var(--green); text-decoration: none; }
+.project-demo:hover { text-decoration: underline; }
+.analisis-note a { color: var(--accent); text-decoration: none; }
+.analisis-note a:hover { text-decoration: underline; }
+
+/* Recomendaciones: cada ítem con un borde lateral de color según su prioridad. */
+.recs { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+.rec { background: var(--bg2); border: 1px solid var(--border); border-left: 4px solid var(--accent); border-radius: 8px; padding: 10px 12px; font-size: 0.88rem; line-height: 1.5; }
+.rec-alta { border-left-color: var(--red); }
+.rec-media { border-left-color: var(--yellow); }
+.rec-baja { border-left-color: var(--green); }
+.rec-prio { font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); display: block; margin-bottom: 2px; }
+
+/* Media query: en pantallas angostas la grilla pasa a UNA columna y el CV
+   se muestra después de las ofertas (order), para priorizar el contenido. */
+@media (max-width: 860px) {
+  .layout { grid-template-columns: 1fr; }
+  .cv-panel { order: 2; }
+  .jobs-panel { order: 1; }
+}
+
+@media (max-width: 480px) {
+  .evidence-row { grid-template-columns: 1fr; }
+}
+
+:root {
+  color-scheme: light;
+  --page-background: radial-gradient(circle at 8% 0%, #e2f0ea 0%, transparent 42%), linear-gradient(160deg, #f7f9f7, #edf2ef 60%);
+  --hover-shadow: 0 10px 24px rgba(24, 42, 34, 0.12);
+  --gap-color: #a63f48;
+  --gov-color: #654593;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #0a0f1e;
+  --bg2: #141b2e;
+  --panel: #161f36;
+  --panel-hover: #1b2540;
+  --border: #2a3557;
+  --border-strong: #3d4b78;
+  --text: #eef2fb;
+  --muted: #9aa8c7;
+  --accent: #8b7bff;
+  --accent2: #00c2ff;
+  --accent-glow: rgba(108, 92, 231, 0.35);
+  --green: #2dd4bf;
+  --yellow: #fbbf24;
+  --red: #fb7185;
+  --shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  --page-background: radial-gradient(circle at 15% 0%, #1a1240 0%, transparent 45%), linear-gradient(160deg, #0a0f1e, #0d1224 60%);
+  --hover-shadow: 0 12px 28px rgba(0, 0, 0, 0.4);
+  --gap-color: #fca5a5;
+  --gov-color: #a78bfa;
+}

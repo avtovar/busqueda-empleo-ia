@@ -1,0 +1,25 @@
+{
+  "name": "busqueda-empleo-ia",
+  "version": "1.0.0",
+  "description": "Buscador de empleo multiusuario con perfil por CV, match de skills y propuesta de interes. Argentina.",
+  "type": "module",
+  "private": true,
+  "workspaces": [
+    "frontend"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "npm --prefix frontend run build",
+    "dev": "npm --prefix frontend run dev",
+    "check": "node scripts/check.js",
+    "migrate": "node scripts/migrate.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "mammoth": "^1.8.0",
+    "pdf-parse": "^1.1.1",
+    "pg": "^8.13.1"
+  }
+}
