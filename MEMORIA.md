@@ -14,40 +14,41 @@ frontend adaptado a los dos cambios de contrato: `skills` como array y regiones 
 
 ## 0. DÓNDE QUEDAMOS — leé esto primero si volvés al proyecto
 
-**Pasos 1 a 6 de 12 HECHOS y VERIFICADOS. El paso 7 es el siguiente.**
+**Pasos 1 a 7 de 12 HECHOS y VERIFICADOS. El paso 8 es el siguiente.**
 
 El traspaso quedó el **2026-09-30**, con `npm run check` y `npm run build` en verde. Hay un
-**Postgres 16 corriendo en Docker** con las 9 migraciones aplicadas, usado solo para
+**Postgres 16 corriendo en Docker** con las 10 migraciones aplicadas, usado solo para
 verificar: `docker stop pg-migrate-check` para bajarlo.
 
 ### La frase que resume dónde está el proyecto
 
-**La infraestructura invisible está terminada; la app que el usuario ve no existe todavía.**
-El frontend **no muestra ni una oferta real**: muestra `FALLBACK.jobs`, un set de ofertas demo
-escrito a mano para Ali. Hay que tener esto claro para no creer que el proyecto está más
-avanzado de lo que está: los 6 pasos hechos son los que **no se pueden ver ni usar**.
+**El alta en dos etapas ya se completa entera desde el navegador; las ofertas que ve el
+usuario siguen siendo de demo.** Los 6 primeros pasos eran los que no se podían ver ni usar:
+con el 7 aparece la primera pantalla de verdad (subir el CV, revisarlo, guardarlo), pero todo
+lo demás sigue igual hasta el paso 8.
 
 ### Lo que falta, en orden
 
 | Paso | Qué | Por qué es el siguiente |
 |---|---|---|
-| **7** | **Onboarding del CV**: `/api/cv/parse` + `/api/profile` | **Es el siguiente.** Cierra la segunda etapa del alta, que ya está pensada en el esquema (`profiles`, `skills`) pero sin endpoint que la escriba. |
-| 8 | Ofertas: `/api/jobs`, `/api/job`, `/api/history`, `/api/refresh`, `/api/cover-letter`, `/api/analytics` | **Acá la app recién empieza a consultar bolsas de empleo reales.** |
+| **8** | **Ofertas**: `/api/jobs`, `/api/job`, `/api/history`, `/api/refresh`, `/api/cover-letter`, `/api/analytics` | **Es el siguiente.** El alta ya se completa desde la UI (paso 7); acá la app recién empieza a consultar bolsas de empleo reales. |
 | 9 | Directorio de Argentina (punto 11), sin scraping | |
 | 10 | Apify con límite diario por usuario (`apifyLinkedin.js`, el regex de QA) | |
 | 11 | Borrar cuenta (un `DELETE`, ver decisión 9) | |
 | 12 | Docs: `README`, `.env.example`, guía de Vercel | |
 
-**Aparte, y NO es un paso del plan: falta el frontend de auth** (pantallas de login y
-registro, y ruteo por `profileComplete`). Sin eso el paso 5 no se cierra desde la UI: un
-usuario que abra la app ve ofertas de demo de otro. Chica y de impacto visible, así que si
-se quiere ver algo funcionando temprano, es el mejor candidato después del 7.
+**Aparte, y NO es un paso del plan: faltan los formularios de login y registro** (paso 8 del
+"auth", el que hoy es solo andamiaje). El **ruteo por `profileComplete` ya existe** (es lo que
+hice en el paso 7: `App.jsx` consulta `/api/me` y abre la compuerta del CV), así que lo que
+falta es la pantalla a la que ir. Sin ella, un usuario que abra la app ve el aviso de sesión
+inválida con botón de reintento, en vez de ofertas de demo de otro.
 
-### 8 endpoints que el frontend YA llama y que NO existen
+### 7 endpoints que el frontend YA llama y que NO existen
 
 `/api/jobs`, `/api/job`, `/api/history`, `/api/refresh`, `/api/cover-letter`, `/api/analytics`,
-`/api/profile`, `/api/linkedin-search`. Los 8 están en `frontend/src/api.js` y responden 404.
-Salvo `/api/health` y los 4 de auth, **`api/` no tiene nada más**.
+`/api/linkedin-search`. Los 7 están en `frontend/src/api.js` y responden 404. `/api/profile` ya
+existe (es lo que escribe `profiles` + `skills`, paso 6). Salvo `/api/health`, los 4 de auth y
+los 2 de `/api/cv/*`, **`api/` no tiene nada más**.
 
 ### 3 módulos del origen sin portar (los que quedan)
 
@@ -315,6 +316,8 @@ que `withErrorHandling` lo pase a `sendJson`. Se los separa de `extra` a propós
 cuerpo y un header son dos canales distintos, y metidos en la misma bolsa uno termina
 confundido con el otro. Por eso el 429 lleva los dos: el body para el frontend, que lo
 traduce a un mensaje en pantalla, y el header para los clientes que no parsean JSON.
+**El frontend lee solo el body** (`api.js:apiError`): es el canal que esta misma decisión le
+reservó, y leer el header obligaría a pasarle el `Response` entero a la función.
 ### 2.7 Los 7 países que quedaban en el frontend, y por qué el fallo es SILENCIOSO
 
 El paso 3 limpió el frontend, pero dejó las regiones repetidas en 4 lugares más, porque
@@ -828,6 +831,123 @@ Decisiones que no se deducen del código:
 - **El login exitoso borra los intentos de ese correo** (`clearFailedLogins`), pero no los de
   la IP: borrarlos por IP dejaría pasar un atacante que rota de cuenta.
 
+### 4.5 El rate limit del LLM: tabla de eventos + advisory lock (paso 7, HECHO)
+
+`migrations/010_cv_parses.sql` + `api/lib/cvParseLimit.js`, llamado desde
+`api/cv/parse.js` paso 6. 5 parseos por usuario cada 60 minutos; retención 24 horas con purga
+oportunista.
+
+Es el **tercer** servicio pagado que había que acotar (después de Apify en 007 y el login en
+009), y el único cuya ventana no es un bucket calendario. Eso define casi todo:
+
+- **La tabla es un log de eventos, no un contador.** `apify_usage` (007) puede ser
+  `unique(user_id, day)` con un `count` que se suma, porque su ventana es "hoy" y una columna
+  `day` la define. Acá la ventana es **relativa** ("más viejo que ahora menos una hora") y con
+  un contador único no hay forma de responderla: habría que saber cuándo fue el parseo número
+  N, y un `integer` no lo sabe. Guardando una fila por parseo, la pregunta es un `count` con
+  un `where parsed_at > ...`, y el `min(parsed_at)` arma el `Retry-After` sin tener que mentir.
+- **El límite NO está en la tabla, es una variable de entorno** (`CV_PARSE_LIMIT`,
+  `CV_PARSE_LIMIT_WINDOW_MINUTES`, `CV_PARSE_RETENTION_HOURS`), igual que `APIFY_DAILY_LIMIT`.
+  Bajarlo tiene que ser cambiar una variable y redesplegar, no una migración sobre datos que
+  deja a los usuarios trabados a mitad de cuota.
+- **La FK a `users` SÍ existe, y en `login_attempts` NO, a propósito.** Ahí el intento se
+  registra aunque el correo no exista, así que no puede haber FK (o el 500 sería un oráculo para
+  enumerar cuentas). Acá un parseo sin sesión válida no llega a contar nunca, porque el límite
+  va **después** de `requireSession`. Por eso `on delete cascade` también aplica: borrar la
+  cuenta se lleva los parseos, y "cuándo esta persona subió su CV" es un dato de ella.
+- **Va después de validar el archivo y antes del LLM.** Un 401, un 415 (tipo malo), un 413
+  (muy grande) o un 400 (escaneo sin capa de texto) no llegan al LLM, así que no tienen por qué
+  consumir cuota: cobrándole al usuario un parseo por un PDF que la app rechazó por el nombre
+  sería cobrarle por un error de la app.
+
+Lo que **no** se deduce del código y costó decidir:
+
+- **El `count` y el `insert` van en una transacción con `pg_advisory_xact_lock`, y el upsert de
+  007 NO sirve como patrón.** En 007 el `+ 1` va adentro de un `on conflict do update` porque la
+  fila es única por (usuario, día) y el conflicto detecta el duplicado. Acá el "conflicto" que
+  hay que detectar es *"ya hubo N en la ventana"*, que no es una restricción de unicidad sino un
+  `count`, así que no hay nada que poner en el `on conflict`. Y meter el `count` y el `insert`
+  en un CTE tampoco sirve, por una razón de **PostgreSQL**: todas las sub-sentencias de un CTE
+  con `insert` comparten el mismo snapshot, así que el `select` del CTE principal **no ve** la
+  fila que se acaba de insertar, y el `count` saldría con un parseo menos.
+
+  **Control medido, 5 requests concurrentes con límite 3:**
+
+  | | aceptados | filas |
+  |---|---|---|
+  | con `pg_advisory_xact_lock` | 3 | 3 |
+  | sin el lock | **4** | **4** |
+
+  El caso sin lock NO es detectable con requests secuenciales: aparece solo con concurrencia, o
+  sea que un test en serie daría verde con el bug presente.
+- **`hashtextextended` y no `hashtext`**, porque devuelve un bigint. `hashtext` devuelve un
+  int4 y el espacio de nombres de advisory locks de una sola clave es 2^32: dos usuarios
+  distintos se bloquearían entre sí con probabilidad no despreciable.
+- **El lock se suelta al committear, ANTES de llamar al LLM.** El candado dura lo que dura el
+  `count` y el `insert`, no los 25 segundos del `fetch`. Si quedara tomado durante la llamada,
+  dos requests del mismo usuario se pondrían en fila y el segundo pagaría su parseo para
+  recibir un 429 que no le corresponde.
+- **Un parseo que se PAGÓ y después falló (502, 504, `finish_reason: 'length'`) CUENTA igual.**
+  El contador va antes de la llamada a propósito: los tokens se facturan aunque la respuesta no
+  llegue, y contar después dejaría el límite sin efecto contra un atacante que dispara llamadas
+  que dan timeout y nunca paga ninguna. El precio es un falso positivo acotado.
+- **La ventana se recorta para no comerse la retención** (`Math.min(pedida, retention * 60 - 1)`).
+  Si la retención llegara a ser menor que la ventana, la purga borraría filas que todavía están
+  contando, el `count` bajaría solo y el usuario recuperaría cuota sin que nadie se la haya
+  otorgado. Un límite que se afloja solo es peor que no tenerlo, porque deja de avisar.
+- **Un valor de entorno inválido NO es un error**: `CV_PARSE_LIMIT=hola` cae en el default. Es
+  un error de dedo, no una decisión, y tirar un `ConfigError` convertiría "escribí mal el
+  número" en "la app está caída". (Distinto de `LLM_API_KEY`, que sí es `ConfigError`: sin clave
+  no hay nada que hacer; acá sin límite hay una app que funciona y cuesta plata.)
+- **`CV_PARSE_LIMIT=0` apaga el límite entero**, y existe para tests y desarrollo local, donde
+  no hay una clave de LLM de la que protegerse. En producción nadie lo apaga.
+
+Verificado: `npm run check` (22 archivos), `npm run build` (42 módulos), los 10 endpoints de
+prueba con un **OpenAI-compatible falso** en `127.0.0.1` (`LLM_BASE_URL` antes de importar nada,
+porque `llm.js` lee la variable **al importar el módulo**) y el PDF real de 58 863 bytes. 46
+aserciones, todas verdes, y el contador de llamadas al LLM falso coincide **exactamente** con la
+cantidad de 200 — que es la prueba de que el límite corta antes de la llamada que se paga.
+
+**Lo que este límite NO protege**: un adversario que se registra cuentas nuevas. El registro es
+abierto y no hay verificación de correo, así que acota el gasto de UNA cuenta, no el total. Es
+la misma limitación que tiene el rate limit del login, y el número de cuentas lo limita el costo
+del alta, que hoy es cero. Queda anotado en §5.
+
+### 4.6 El frontend del onboarding: cuatro decisiones que no se deducen del código (paso 7)
+
+1. **Un solo componente para compuerta y editor** (`CvOnboarding.jsx`, sin props = compuerta, con
+   `onCancel` = modal de edición). La razón concreta: **`PUT /api/profile` es un reemplazo, no un
+   parche** — lo que no viene en el body se borra, `skills` incluida. Editar un peso o corregir
+   un título tiene que reenviar el perfil entero, y volver a subir el CV para eso gastaría otro
+   análisis de la cuota (que es un LLM de pago). Por eso el editor existe, y por eso el
+   formulario **arrastra y muestra contados y nombrados** `marketSkills` y `projects`: si no se
+   dijera, guardar un perfil bien guardado borraría en silencio los proyectos del CV y las
+   tarjetas de la Propuesta de Interés, y la primera explicación de nadie sería "la app se rompió".
+2. **Los errores se muestran TAL CUAL los escribió `http.js`.** `apiError()` solo le AGREGA
+   datos al `Error` (`status` y `retryAfter`), nunca texto. Reescribir la explicación en el
+   cliente significa mantener dos versiones y que una quede vieja; y el 429 se distingue del
+   resto por el ícono (⏳) y por un color ámbar (`.cv-error.limite`), no por otra frase.
+3. **La compuerta se abre con `profileComplete === false` del `/api/me`, no con `!profile`.**
+   `loadProfile()` devuelve `null` tanto por un 403 real como por una llamada que falló, así que
+   con `!profile` un problema de red pintaba "subí tu CV" a alguien que ya lo subió — y el único
+   botón de esa pantalla consumía otro análisis. Es el mismo criterio con el que ya se abrió la
+   compuerta de sesión: usar el endpoint que *decide* en vez de inferir desde un dato que se
+   puede degradar.
+4. **Las dos escrituras del alta llevan `AbortSignal.timeout` (75 s y 30 s) y las lecturas no.**
+   Las lecturas tienen `FALLBACK`, así que colgar no rompe nada. Las escrituras, en cambio,
+   quedarían con el botón en "Analizando tu CV…" para siempre sin salida posible, y en el
+   parseo se está esperando a un LLM de pago. El abort se traduce a **504**, el mismo código que
+   devuelve `cv/parse.js` cuando el proveedor no responde, para que el cliente y el servidor no
+   tengan dos textos para lo mismo. `status: 0` queda reservado a "no hubo conexión" (y ahí el
+   mensaje sí es del cliente, porque no hubo nadie que escribiera uno).
+
+Verificado: `npm run check` (22 archivos), `npm run build` (43 módulos) y **27 aserciones de la
+capa de red** contra un backend falso en `127.0.0.1` (no toca Apify, ni el LLM, ni la base):
+el campo del multipart se llama `cv` y viaja con nombre y tipo, `saved: false` explícito,
+`marketSkills` y `projects` vuelven del parseo, el `PUT` manda el perfil entero, y 400/401/415/429
+salen con el mensaje del backend sin reescribir, con `status` y con `retryAfter`; el timeout
+da 504 y una conexión rechazada da `status: 0`.
+
 ---
 
 ## 5. Dudas que siguen abiertas
@@ -846,6 +966,15 @@ aparecen durante la implementación. **Ninguna bloquea el paso 1.**
 4. **¿Se permite el registro abierto o hay lista de invitados?** El punto 4 pide registro,
    pero en Vercel cualquiera que conozca la URL podría crear una cuenta. El rate limit del
    login protege las contraseñas, no el registro.
+
+5. **El registro abierto es el agujero que NO tapa el rate limit del LLM (2026-10-01).**
+   `cv_parses` limita el gasto de **una** cuenta (5 CVs por hora). Un adversario que se
+   registre diez cuentas tiene diez cuotas, y el alta no cuesta nada porque no hay verificación
+   de correo. La salida NO es subir el límite por usuario (sería peor: multiplica el gasto de
+   los usuarios reales por el del atacante) sino poner una compuerta en el alta: verificación
+   de correo, lista de invitados, o un límite de altas por IP con la tabla de `login_attempts`.
+   **Queda sin decidir cuál de las tres**; es la misma pregunta que la duda 4, vista desde el
+   lado del costo.
 
 ---
 
@@ -955,8 +1084,16 @@ Cada paso termina con `npm run check` + `npm run build` verdes (ver `AGENTS.md`)
    dos ofertas con el mismo score quedaban en orden de llegada. Ahora usa
    `publishedAt(job)` (`matcher.js:264`), que prueba `date || postedAtTimestamp ||
    postedAt`. Mismo orden de campos que `history.js:45`.
-7. **Onboarding**: `/api/cv/parse` (validar MIME y tamaño, extraer texto en memoria, LLM con
-   `LLM_API_KEY`, proveedor configurable) + formulario de revisión/edición en el frontend.
+7. **Onboarding — HECHO y VERIFICADO de las dos mitades (2026-10-01).** La de backend:
+   `/api/cv/parse` (validar MIME y tamaño, extraer texto en memoria, LLM con `LLM_API_KEY`,
+   proveedor configurable), `api/lib/cvText.js`, `api/lib/llm.js` y el **rate limit contra la
+   tabla `cv_parses`** (§4.5). Verificado con las 10 migraciones contra un Postgres 16 y 46
+   aserciones contra un OpenAI-compatible falso en `127.0.0.1`.
+   La de frontend: `frontend/src/components/CvOnboarding.jsx` (un solo componente, dos usos:
+   compuerta del alta y **editor** de un perfil existente), las cuatro funciones de red de
+   `frontend/src/api.js` (`loadSession`, `parseCv`, `saveProfile` y el helper `apiError`) y el
+   ruteo de las dos compuertas en `App.jsx`. Las cuatro decisiones que no se deducen del código
+   están en **§4.6**.
 8. **Ofertas**: funciones serverless `/api/jobs`, `/api/job`, `/api/history`, `/api/refresh`,
    `/api/cover-letter`, `/api/analytics`. Todo con `requireSession` y `withPortal`.
 9. **Directorio de Argentina** (punto 11): sin scraping, links de búsqueda prellenados con las

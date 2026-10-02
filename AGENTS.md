@@ -127,7 +127,46 @@ camino sin token es arrancar el proceso SIN token, nunca mandarlo vacío desde o
 proceso.** En Vercel esto se resuelve solo (el server es el que tiene la variable), pero
 no lo reproduzcas con un test que "simule" la ausencia del token.
 
-Nunca leas, imprimas ni commitees el valor de `APIFY_API_TOKEN`.
+Nunca lees, imprimas ni commitees el valor de `APIFY_API_TOKEN`.
+
+## La misma regla, pero con el LLM: dos servicios pagos, no uno
+
+`POST /api/cv/parse` es el **único** endpoint que llama a un LLM, y **también se paga por
+token**, con `LLM_API_KEY` (la clave del dueño de la app). Es la misma clase de riesgo que
+Apify y aplica todo lo de arriba:
+
+- **Nunca lo llames en pruebas, smoke tests ni CI** contra el proveedor real. Lo único que se
+  puede ejercitar de verdad es un **OpenAI-compatible falso**: `llm.js` arma la URL como
+  `${LLM_BASE_URL}/chat/completions`, así que alcanza con levantar un `node:http` que
+  responda un `chat.completion` y apuntar `LLM_BASE_URL` a `http://127.0.0.1:<puerto>/v1`.
+- **`LLM_BASE_URL` se lee AL IMPORTAR el módulo**, no en cada llamada. Si un script importa
+  `api/cv/parse.js` (o cualquier cosa que importe `llm.js`) antes de poner la variable, el
+  `fetch` sale a `api.openai.com` de verdad. **Poné `process.env.LLM_BASE_URL` antes del
+  primer `import()`**, y recordá que en Windows un `import()` de ruta absoluta necesita
+  `pathToFileURL`.
+- Escribí la URL del proveedor en un servidor local y **no** la mandes vacía desde otro
+  proceso: es la misma trampa que está arriba, con el mismo modo de falla.
+
+Los tres servicios con costo tienen su propio límite, y los tres son tablas en Postgres porque
+**en serverless no hay memoria entre invocaciones**:
+
+| Servicio | Tabla | Función | Config |
+|---|---|---|---|
+| Apify | `apify_usage` (007) | contador por día | `APIFY_DAILY_LIMIT` |
+| Login | `login_attempts` (009) | log de intentos fallidos | `LOGIN_LIMIT*` |
+| LLM | `cv_parses` (010) | log de parseos por usuario | `CV_PARSE_LIMIT*` |
+
+**Lo que NO hay que hacer es reusar `rateLimit.js` para el LLM.** `assertLoginAllowed` cuenta
+intentos fallidos de autenticación: escribirle una fila por cada parseo deja al usuario sin
+poder entrar 15 minutos después de 10 CVs, y consultarlo sin escribir da un contador en cero
+justo para el atacante. El módulo nuevo es `api/lib/cvParseLimit.js`, y el porqué entero está
+en su cabecera.
+
+Ojo con el **orden** en `api/cv/parse.js`: `requireSession` → validar archivo y extraer texto
+→ **`assertCvParseAllowed`** → LLM. Lo que se rechaza antes de esa línea no costó tokens, así
+que no tiene por qué consumir cuota. Y el `await` del rate limit **no contiene** la llamada al
+LLM: la transacción se committea antes de esperar al proveedor, o dos requests del mismo
+usuario se pondrían en fila detrás de un lock de 25 segundos.
 
 ## Arquitectura: lo que no se deduce de los nombres
 
@@ -310,6 +349,8 @@ Dos cosas sueltas que no se deducen del código:
 - Cookie de sesión: **HttpOnly + Secure + SameSite** + expiración. Rotar `SESSION_SECRET` con
   usuarios reales invalida todas las sesiones: es aceptable, pero avisalo.
 - Rate limit en `/api/login`. Sin él, cualquiera puede probar contraseñas en serio.
+- Rate limit en `/api/cv/parse`, que es lo que evita que un usuario vacíe la clave del LLM.
+  Van **dos servicios pagos** acá y cada uno tiene su tabla; ninguno es gratis.
 - El CV: validar **tipo MIME y tamaño** antes de parsear, y no guardarlo en disco (Vercel es
   efímero). Extraer texto en memoria, mandarlo al LLM, y persistir **solo el perfil
   derivado**. Si se conserva el archivo, es Vercel Blob — y entonces hay que definir qué
@@ -325,7 +366,8 @@ Dos cosas sueltas que no se deducen del código:
   completo, y **las dos limitaciones que la cascada NO arregla** (no protege borrar mal *una*
   cuenta, y no deja rastro de la baja), están en `MEMORIA.md` §4.1, decisión 9. Lo que sí sale
   de ahí: **logueá la baja en el endpoint ANTES del `delete`**, porque la fila desaparece y la
-  base no guarda ningún registro del evento.
+  base no guarda ningún registro del evento. (La séptima FK, `cv_parses` de la migración `010`,
+  también es cascade.)
 - Secretos **solo** en variables de entorno de Vercel. `.env` nunca se commitea.
 
 ## Estado actual
@@ -350,9 +392,10 @@ El **paso 5 (auth) también está HECHO y VERIFICADO contra un Postgres real**: 
 `api/lib/auth.js` (cookie firmada + las dos compuertas), `api/lib/http.js` (errores, JSON,
 cookies, `withErrorHandling`), `api/lib/rateLimit.js` (rate limit del login sobre la tabla
 `login_attempts` de `migrations/009_login_attempts.sql`) y los endpoints `register.js`,
-`login.js`, `logout.js`, `me.js` y `health.js`. **Lo que NO hay todavía**: el frontend de
-auth (formularios de login/registro y ruteo por `profileComplete`), y los endpoints que
-consumen perfil, así que la segunda etapa del alta todavía no se puede completar desde la UI.
+`login.js`, `logout.js`, `me.js` y `health.js`. **Lo que NO hay todavía**: los formularios de login y registro. Los endpoints existen y
+funcionan, pero no hay pantalla para llegar a ellos: `App.jsx` muestra un aviso de sesión
+inválida con un botón de reintento, que es el andamiaje mínimo que hace falta hasta que el
+paso 8 escriba el login de verdad.
 
 **Ojo con las tres capas de auth, que están separadas a propósito**:
 
@@ -424,6 +467,49 @@ Ojo también con: las dependencias de runtime (`pg`, `bcryptjs`, `pdf-parse`, `m
 instaladas y **`scripts/migrate.js` existe**, así que **`npm run migrate` funciona**. El frontend
 compila pero todavía consume endpoints que no existen, y muestra el set de ofertas demo del
 `FALLBACK.jobs` mientras el backend no responda.
+
+El **paso 7 (onboarding) está HECHO y VERIFICADO de las dos mitades**: la de backend son
+`api/lib/cvText.js` (validación MIME/tamaño + extracción de PDF/DOCX en memoria), `api/lib/llm.js`
+(el único módulo que habla con el proveedor, con recorte de entrada y tope de salida) y
+**`cv_parses`** (migración `010`) con `api/lib/cvParseLimit.js`, llamado desde `api/cv/parse.js`
+paso 6. Verificado con `npm run check` (22 archivos), `npm run build` (43 módulos), las 10
+migraciones aplicadas e idempotentes contra un Postgres 16, y 46 aserciones contra un
+**OpenAI-compatible falso** en `127.0.0.1` con el PDF real: 401/415/400 no consumen cuota, 200
+hasta el límite, 429 con `Retry-After` en el body y en el header, los rechazos no suman filas,
+dos usuarios aislados, ventana relativa, purga a 24 horas, cascada al borrar la cuenta, y el
+`CV_PARSE_LIMIT=0` de tests. El contador de llamadas al LLM falso coincidió **exactamente** con
+la cantidad de 200.
+
+La **mitad de frontend** de este paso son `frontend/src/components/CvOnboarding.jsx` (un solo
+componente con dos usos: la compuerta del alta y el editor de un perfil existente), las cuatro
+funciones de red de `frontend/src/api.js` (`loadSession`, `parseCv`, `saveProfile`, más
+`apiError`) y el ruteo de las dos compuertas en `App.jsx`. Verificado con `npm run check` (22
+archivos), `npm run build` (43 módulos) y 27 aserciones de la capa de red contra un backend
+**falso** en `127.0.0.1` (no toca Apify, ni el LLM, ni la base).
+
+Ojo con cuatro decisiones de esa capa, que no se deducen del código:
+
+- **`PUT /api/profile` es un REEMPLAZO, no un parche.** El formulario manda el perfil entero y
+  arrastra los dos campos que **no** se editan (`marketSkills` y `projects`), porque lo que no
+  viene en el body se borra. El editor los muestra contados y nombrados abajo del formulario
+  para que nadie piense que se perdió nada. Por eso el editor es un modal aparte y no un
+  "volvé a subir el CV": corregir un peso de skill no debería gastar otro análisis de la cuota.
+- **El mensaje de error se muestra TAL CUAL** lo escribió `http.js`, y el cliente solo le AGREGA
+  `status` y `retryAfter` (datos, no texto). El 429 se distingue por el ícono y por un color
+  ámbar (`.cv-error.limite`), no por reescribir la explicación.
+- **La compuerta se abre con `profileComplete === false` del `/api/me`, NO con `!profile`.**
+  `loadProfile()` devuelve `null` tanto por un 403 real como por una llamada que falló, y con
+  `!profile` un problema de red pintaba "subí tu CV" a alguien que ya lo subió.
+- **Las dos escrituras del alta llevan `AbortSignal.timeout`** (75 s el parseo, 30 s el PUT) y
+  las de lectura no. Las de lectura tienen `FALLBACK`, así que colgar no rompe nada; en el
+  alta, colgar deja el botón en "Analizando tu CV…" para siempre, y en el parseo se está
+  esperando a un LLM de pago. El abort se traduce a **504** (el mismo código que devuelve
+  `cv/parse.js`) y no a `status: 0`, que queda para "no hubo conexión".
+
+**Lo que NO hay todavía**: los formularios de login y registro (paso 8), y una compuerta en el
+alta. El rate limit del LLM limita **una** cuenta: con el registro abierto y sin verificación de
+correo, un adversario se registra diez cuentas y tiene diez cuotas. La salida es una compuerta
+en el alta, **no** subir el límite por usuario. Queda anotado en `MEMORIA.md` §5, duda 5.
 
 | Skill | Cubre |
 |---|---|

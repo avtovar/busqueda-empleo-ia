@@ -10,8 +10,15 @@
 //      loadJobs('argentina') y reciben datos.
 // Las URLs son relativas ("/api/..."): en desarrollo Vite las reenvía al
 // backend (proxy de vite.config.js) y en producción las sirve el mismo server.
-// No hay timeout ni AbortController: si el backend se cuelga, la promesa queda
-// esperando indefinidamente (eso sí, el resto de la UI sigue funcionando).
+//
+// OJO, este párrafo cambió con el alta (paso 7). Antes decía "no hay timeout ni
+// AbortController". Sigue siendo cierto para las llamadas de LECTURA: si el
+// backend se cuelga, la promesa queda esperando y el resto de la UI sigue
+// funcionando (por eso las de lectura tienen FALLBACK). Para las dos
+// ESCRITURAS del alta no: quedarse esperando en silencio significaría dejar el
+// botón en "Analizando tu CV…" para siempre, sin poder reintentar ni cancelar,
+// y en el caso del parseo se está esperando a un LLM de pago. Esas dos llevan
+// `AbortSignal.timeout`, con el detalle de qué timeout en cada función.
 
 // FALLBACK: datos de respaldo que se usan cuando el backend no responde.
 // Así la pantalla nunca se queda en blanco, aunque no haya internet o server.
@@ -92,7 +99,7 @@ export async function loadHistory(region) {
 // No usa la respuesta: solo es un "disparador" (POST sin body).
 // ↑ Devuelve el body parseado para que el llamador pueda distinguir una recarga
 //   real de un fallo silencioso. Antes no miraba la respuesta (fire and forget),
-//   y.handleRefresh() recarga igual la región: cuando el POST fallaba (server
+//   y `App.handleRefresh()` recarga igual la región: cuando el POST fallaba (server
 //   caído a mitad de la búsqueda) la pantalla mostraba los datos viejos con la
 //   etiqueta de "recién actualizado", que es peor que avisar que no se pudo.
 export async function refreshJobs() {
@@ -176,4 +183,265 @@ export async function loadAnalytics() {
     if (res.ok) return await res.json();
   } catch {}
   return null;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// EL ALTA EN DOS ETAPAS, VISTA DESDE EL NAVEGADOR
+// ---------------------------------------------------------------------------
+// Las tres funciones de esta sección son las que cierran el paso 7 (el frontend
+// del onboarding) y son las ÚNICAS además de `searchLinkedInJobs` que NO caen
+// al FALLBACK: si fallan, LANZAN el error. El motivo es compartido y es el del
+// proyecto, no una excepción: son la parte del alta donde un fallo silencioso es
+// una pérdida de datos. Un `null` deFallback en `loadProfile` está bien porque
+// "todavía no hay perfil" es un estado REAL; acá en cambio, un error de red
+// disfrazado de "sin perfil" dejaría al usuario mirando un formulario vacío sin
+// saber que su CV no se pudo leer, y un 429 disfrazado de nada lo dejaría
+// pensando que la app anda mal en vez de que tiene que esperar.
+//
+// Y hay un detalle de seguridad que se respeta sin que el componente lo sepa:
+// el `user_id` sale SIEMPRE de la cookie firmada, nunca del body. Por eso
+// `saveProfile` manda el perfil tal cual y no "limpia" el `userId` que vino
+// dentro: el backend ni lo mira (`api/profile.js`, bloque de `user_id`).
+// ════════════════════════════════════════════════════════════════════════════
+
+// El techo de espera de `parseCv`. Holgado a propósito: el backend da 25 s al
+// proveedor del LLM y su función de serverless tiene `maxDuration: 60`, así que
+// cualquier respuesta válida entra acá con margen. Lo que pasa de esto ya no es un
+// LLM lento, es un backend colgado, y en ese caso lo que hay que hacer es dejar de
+// esperar y dejar que el usuario reintente (que además es lo único que puede
+// hacer: el parseo no guarda nada hasta el `PUT`).
+const PARSE_TIMEOUT_MS = 75_000;
+
+// El techo de `saveProfile`. Más corto porque acá no hay nadie pensando: es un
+// `PUT` a la base. 30 s es muchísimo para una transacción.
+const SAVE_TIMEOUT_MS = 30_000;
+
+/**
+ * La `signal` de un `fetch` que se corta solo pasado un rato.
+ *
+ * `AbortSignal.timeout(ms)` y no el `setTimeout` + `clearTimeout` de manual, por
+ * una razón que vale la pena: la signal no solo deja de esperar, ABORTA la
+ * request. Si lo único que hiciera fuera fallar la promesa, el upload del CV
+ * seguiría ocupando el socket del navegador en el fondo y la conexión al backend
+ * quedaría viva.
+ *
+ * `undefined` como valor de retorno NO es un error: es lo que reciben los
+ * navegadores que no tengan `AbortSignal.timeout` (ninguno de los soportados
+ * hoy; está en Chrome 103+, Firefox 100+ y Safari 16+). Pasar `signal: undefined`
+ * es exactamente lo mismo que no pasar `signal`, así que en ese caso se conserva
+ * el comportamiento de antes en vez de romper el alta entera.
+ *
+ * @param {number} ms El techo, en milisegundos.
+ * @returns {AbortSignal|undefined}
+ */
+function timeoutSignal(ms) {
+  return typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+    ? AbortSignal.timeout(ms)
+    : undefined;
+}
+
+/**
+ * Convierte una respuesta fallida en un `Error` con la información que la UI
+ * necesita para mostrarla bien.
+ *
+ * Los errores del backend SIEMPRE vienen con `{ error: "<mensaje en español>" }`
+ * (`http.js` los arma así), y ese mensaje se muestra TAL CUAL: es texto escrito
+ * para la persona, con el motivo y el próximo paso. Reescribirlo en el cliente
+ * significa mantener dos versiones de la misma explicación y que una quede vieja.
+ *
+ * Lo que se le AGREGA son dos datos, no texto:
+ *   · `status`: para distinguir los casos que el mensaje solo no dice (401 = la
+ *     sesión se cayó, 429 = hay que esperar, 0 = ni siquiera hubo respuesta).
+ *   · `retryAfter`: los segundos que dice el 429, y salen SOLO del body.
+ *
+ * Sobre por qué el header `Retry-After` no se lee (aunque `cv/parse.js` también
+ * lo mande): el número del body y el del header son el mismo, y leer el header
+ *Obligaría a pasar el `Response` entero a esta función. Si alguna vez un proxy
+ * (Vercel, un balanceador) contestara 429 con un body que no es el del backend,
+ * el mensaje tampoco estaría y el 429 se vería como un error genérico igual, así
+ * que el header no compra un caso real.
+ *
+ * @param {number} status El status HTTP, o 0 si no hubo respuesta.
+ * @param {object} [data] El body ya parseado (puede ser `{}`).
+ * @param {string} fallbackMessage Lo que se muestra si el body no trajo `error`.
+ * @returns {Error} El error para lanzar.
+ */
+function apiError(status, data, fallbackMessage) {
+  const body = data && typeof data === 'object' ? data : {};
+  const error = new Error(body.error || fallbackMessage);
+  // ↑ `body.error || fallbackMessage`: el mensaje del backend gana siempre. El
+  //   fallback es solo para el caso de que la respuesta no sea JSON (el HTML de
+  //   error de un proxy, por ejemplo), donde sin esto se vería "[object Object]".
+
+  error.status = status;
+
+  // El 429 del parseo del CV. Se lee el body primero y el header después: el
+  // backend manda los dos, y el body gana porque es el mismo que ya se parseó.
+  const retry = Number(body.retryAfter ?? body.retryAfterSeconds);
+  if (Number.isFinite(retry) && retry > 0) error.retryAfter = retry;
+  // ↑ `??` y no `||`: los dos campos vienen con el mismo número, así que da igual
+  //   acá, pero `retryAfter: 0` tiene que poder existir como dato (o sea, "no
+  //   esperes") y con `||` se leería como ausente.
+
+  return error;
+}
+
+/**
+ * Dice quién es el usuario y si ya completó el alta (`GET /api/me`).
+ *
+ * Es el endpoint que DECIDE A DÓNDE VA LA PANTALLA, y por eso devuelve un
+ * resultado con motivo, no un booleano. La distinción que importa es entre las
+ * tres respuestas posibles:
+ *
+ *   · 200 → hay sesión. `{ ok: true, user, profileComplete }`.
+ *   · 401 → el backend respondió y dice que no hay sesión: `reason: 'sin-sesion'`.
+ *   · no hubo respuesta → `reason: 'sin-respuesta'`.
+ *
+ * Las dos últimas se parecen en que no hay sesión, pero NO son lo mismo y la UI
+ * las trata distinto a propósito: con un 401 se sabe que hay backend y que hay
+ * que iniciar sesión; sin respuesta, avisarle a alguien "iniciá sesión" cuando en
+ * realidad el server está caído lo manda a un login que tampoco va a funcionar.
+ * Por eso `null` no alcanza como respuesta única (que es lo que devuelve
+ * `loadProfile`, donde el null sí es un estado real y no una duda).
+ *
+ * Ojo con el 404: cae en `sin-respuesta`, NO en `sin-sesion`. Un backend viejo
+ * sin la ruta `/api/me` no es "el usuario no tiene sesión", y tratar ese caso
+ * como un 401 mostraría un aviso de sesión inválida a alguien que solo tiene
+ * que esperar a que se despliegue el backend.
+ *
+ * @returns {Promise<{ok: true, user: object|null, profileComplete: boolean}
+ *                  | {ok: false, reason: 'sin-sesion'|'sin-respuesta'}>}
+ */
+export async function loadSession() {
+  try {
+    const res = await fetch('/api/me');
+    if (res.ok) {
+      const data = await res.json().catch(() => ({}));
+      return {
+        ok: true,
+        user: data.user || null,
+        // `=== true` y no truthy: este valor decide si la app muestra el
+        // formulario de CV o las ofertas, así que un "1" suelto no puede abrir
+        // la compuerta de "ya completaste el alta".
+        profileComplete: data.profileComplete === true,
+      };
+    }
+    if (res.status === 401) return { ok: false, reason: 'sin-sesion' };
+  } catch {}
+  // ↑ Sin respuesta (server caído, sin internet, o la ruta /api/me no existe
+  //   todavía). Es el mismo caso que `loadJobs` maneja con el FALLBACK, pero acá
+  //   NO hay fallback: solo se informa el motivo.
+  return { ok: false, reason: 'sin-respuesta' };
+}
+
+/**
+ * Manda el CV al backend y devuelve el PERFIL DERIVADO, sin guardar
+ * (`POST /api/cv/parse`).
+ *
+ * Los tres detalles que no son obvios de este endpoint:
+ *
+ *   · El campo del formulario tiene que llamarse `cv` (`parse.js:FIELD_NAME`), y
+ *     es multipart con el archivo crudo.
+ *   · NO se pone `Content-Type`. El navegador tiene que poner el `boundary` del
+ *     multipart en ese header, y si se lo pone a mano (por ejemplo
+ *     `multipart/form-data` a secas) el backend no encuentra el archivo y
+ *     responde 400. Es el error clásico de este endpoint, y por eso el `body` va
+ *     pelado: un `FormData` se manda solo.
+ *   · SÍ lleva timeout, y es el único `fetch` del archivo que lo lleva. Acá se
+ *     espera a un LLM de pago: el backend da 25 s al proveedor y su función de
+ *     serverless tiene `maxDuration: 60`, así que 75 s es holgado para cualquier
+ *     respuesta válida. Lo que va más allá de eso ya no es un LLM lento, es un
+ *     backend colgado, y dejarlo esperando para siempre dejaría el botón en
+ *     "Analizando tu CV…" sin salida.
+ *
+ * La respuesta 200 es `{ ok, profile, kind, saved: false }`. El `saved: false`
+ * es lo importante: este perfil NO está en la base, existe solo en esta pantalla
+ * hasta que el usuario revise y mande el `PUT /api/profile`.
+ *
+ * @param {File} file El `.pdf` o `.docx` elegido por el usuario.
+ * @returns {Promise<{ok: true, profile: object, kind: string, saved: false}>}
+ * @throws {Error} Con `status` 401, 400, 413, 415, 429, 502, 504 o 0.
+ */
+export async function parseCv(file) {
+  const form = new FormData();
+  // ↑ `new FormData()` sin argumentos: la lista de partes se arma con `append`.
+  form.append('cv', file);
+  // ↑ El nombre de la parte ES el contrato con el backend. Con `File` entero
+  //   (no un string) para que vaya el archivo con su nombre y su tipo.
+
+  let response;
+  try {
+    response = await fetch('/api/cv/parse', {
+      method: 'POST',
+      body: form,
+      // ↑ SIN `headers`. Ver la nota de arriba: el `Content-Type` lo pone el
+      //   navegador con el `boundary` correcto, y pisarlo rompe el parseo.
+      signal: timeoutSignal(PARSE_TIMEOUT_MS),
+      // ↑ `AbortSignal.timeout` (no `setTimeout` + `clearTimeout`) porque además
+      //   ABORTA la request: si solo dejara de esperar, el upload seguiría
+      //   ocupando el socket en el fondo. Ver `timeoutSignal()`.
+    });
+  } catch (err) {
+    // ↑ Ni siquiera hubo respuesta. `status: 0` para que la UI lo distinga de un
+    //   rechazo del backend (415, 429...) y no le pida al usuario que arregle un
+    //   archivo que el problema no es el archivo.
+    if (err?.name === 'TimeoutError') {
+      // El 504 se elige para que el cliente y el servidor usen el MISMO código
+      // para "el proveedor no respondió a tiempo": `cv/parse.js` devuelve 504 en
+      // ese caso, y así el frontend no necesita dos textos para lo mismo.
+      throw apiError(504, null, 'El análisis del CV tardó demasiado y lo cortamos. Volvé a intentarlo en un momento.');
+    }
+    throw apiError(0, null, 'No se pudo conectar con el backend. ¿Está corriendo el server?');
+  }
+
+  const data = await response.json().catch(() => ({}));
+  // ↑ El `.catch` porque un 502 de un proxy puede venir como HTML, y sin esto el
+  //   error que vería el usuario sería un error de parseo del JSON.
+  if (!response.ok) {
+    throw apiError(response.status, data, 'No se pudo analizar tu CV.');
+  }
+  return data;
+}
+
+/**
+ * Guarda el perfil completo y devuelve el que quedó LEÍDO de la base
+ * (`PUT /api/profile`).
+ *
+ * OJO con el verbo: es un REEMPLAZO, no un parche (`api/profile.js` y el JSDoc de
+ * `saveProfile`). Lo que no viene en el body se BORRA, y `skills` se borra y se
+ * reescribe entera. Por eso el componente que arma el body tiene que mandar el
+ * perfil ENTERO (incluidos los campos que no se editan, como `marketSkills` y
+ * `projects`), y no un par de campos cambiados.
+ *
+ * @param {object} profile El perfil completo con la forma del contrato.
+ * @returns {Promise<{ok: true, profileComplete: true, profile: object}>}
+ * @throws {Error} Con `status` 401, 400, 413, 500, 504 o 0.
+ */
+export async function saveProfile(profile) {
+  let response;
+  try {
+    response = await fetch('/api/profile', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(profile),
+      // ↑ JSON sí lleva el `Content-Type` explícito, al revés que el multipart:
+      //   acá no hay `boundary` que el navegador tenga que inventar.
+      signal: timeoutSignal(SAVE_TIMEOUT_MS),
+      // ↑ También con techo, por el mismo motivo que el parseo pero más corto: un
+      //   "Guardando…" infinito deja el formulario trabado y, peor todavía, hace
+      //   CREER que se guardó algo que en realidad no se guardó. Un 504 con texto
+      //   explícito es la única forma honesta de cerrar ese caso.
+    });
+  } catch (err) {
+    if (err?.name === 'TimeoutError') {
+      throw apiError(504, null, 'El guardado tardó demasiado y lo cortamos. No se guardó nada: volvé a intentarlo.');
+    }
+    throw apiError(0, null, 'No se pudo conectar con el backend. ¿Está corriendo el server?');
+  }
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw apiError(response.status, data, 'No se pudo guardar tu perfil.');
+  }
+  return data;
 }

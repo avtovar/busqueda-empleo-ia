@@ -1,0 +1,162 @@
+-- ============================================================================
+-- 010_cv_parses.sql — el contador que hace que el rate limit del parseo de CV
+-- exista de verdad en serverless.
+--
+-- POR QUÉ ESTA TABLA HACE FALTA, Y POR QUÉ AHORA
+-- `POST /api/cv/parse` es el ÚNICO endpoint del proyecto que llama a un LLM, y
+-- un LLM se PAGA POR TOKEN con la clave del DUEÑO de la app. `llm.js` acota el
+-- costo POR llamada (recorta el CV a 20 000 caracteres y limita la respuesta a
+-- 2 000 tokens, así que el techo de una llamada es de unos 7 000 tokens), pero
+-- el costo POR CUENTA no tenía dónde contar. Sin esta tabla, un usuario
+-- autenticado podía llamar al endpoint catorce veces seguidas y gastar la clave.
+--
+-- Es el mismo problema, y con la misma solución, que Apify: AGENTS.md tiene una
+-- sección entera sobre no llamar `/api/linkedin-search` para probar que anda, y
+-- `007_apify_usage.sql` es la tabla que hace que esa búsqueda sea acotada. Esta
+-- es la misma defensa para el otro servicio pago del proyecto.
+--
+-- ── POR QUÉ UNA TABLA Y NO UN `Map` EN MEMORIA ───────────────────────────────
+-- Igual que en `009_login_attempts.sql` y por el mismo motivo: en Vercel cada
+-- invocación es un PROCESO DISTINTO. Un contador a nivel de módulo arranca vacío
+-- en cada una, así que catorce requests seguidos los reparten entre catorce
+-- procesos que no comparten nada y cada uno ve "primer parseo". El límite se ve
+-- que funciona, da sensación de estar, y no detiene a nadie. Es el peor tipo de
+-- bug: el que pasa los tests.
+--
+-- ── POR QUÉ UNA TABLA DE EVENTOS Y NO UN CONTADOR ───────────────────────────
+-- `apify_usage` guarda UN contador por (usuario, día) y sube con un upsert. Acá
+-- no se puede, y la diferencia es la forma de la ventana:
+--
+--   · La de Apify es un BUCKET CALENDARIO ("hoy"). El día lo define una
+--     columna `day` y la fila se puede sumar y restar sin perder historia.
+--   · La de acá es una VENTANA RELATIVA ("más viejo que ahora menos una hora").
+--     Con un contador único no hay forma de responder eso: habría que saber
+--     cuándo fue el parseo número N, y un `integer` no lo sabe. Guardando una
+--     fila por parseo, la pregunta es un `count` con un `where parsed_at > ...`
+--     y el "cuándo se libera" sale del `min(parsed_at)`, que además es lo que
+--     arma el `Retry-After` sin tener que mentir ("esperá 15 minutos" cuando en
+--     realidad faltan 2).
+--
+-- O sea: `apify_usage` es un contador porque su ventana es un día; `cv_parses`
+-- es un log porque su ventana es una hora. El límite NO está en la tabla: es
+-- `CV_PARSE_LIMIT` (ver `api/lib/cvParseLimit.js`), por la misma razón que en
+-- 007 — bajarlo tiene que ser cambiar una variable y redesplegar, no una
+-- migración sobre datos que deja a los usuarios trabados a mitad de cuota.
+--
+-- ── POR QUÉ ESTA TABLA SÍ TIENE FOREIGN KEY A `users` Y `login_attempts` NO ──
+-- Es la diferencia más importante con la migración anterior, y no es un descuido
+-- al revés: acá la clave es un `user_id` REAL, que viene de `requireSession` y
+-- que ya se verificó contra la base. En `login_attempts` el intento se registra
+-- aunque el correo NO exista, así que no puede haber FK (la migración lo explica
+-- largo: un INSERT de un correo inventado fallaría y el 500 sería un oráculo
+-- para enumerar cuentas).
+--
+-- Acá no hay ningún caso así: un parseo sin sesión válida no llega a contar
+-- nunca, porque el rate limit va DESPUÉS de `requireSession`. Y como la FK es
+-- `on delete cascade`, borrar la cuenta se lleva estos registros con ella (y es
+-- una fila menos de PII guardada: `parsed_at` es la única cosa que hay acá, pero
+-- "cuándo esta persona subió su CV" es un dato de ella).
+--
+-- ── LO QUE ESTA TABLA NO CUENTA, Y POR QUÉ ──────────────────────────────────
+-- Cuenta los parseos que LLEGARON AL LLM, o sea los que se pagaron. NO cuenta:
+--
+--   · los que se rechazaron antes (401 sin cookie, 415 por un tipo de archivo que
+--     no se lee, 413 por tamaño, 400 por un escaneo sin capa de texto): están
+--     antes del rate limit a propósito, y ver el orden en `api/cv/parse.js`.
+--   · los que el propio rate limit rechazó (429): el `throw` de `HttpError` cae
+--     adentro de la transacción y la escribe con ROLLBACK, así que no queda fila.
+--     Es la misma propiedad que tiene el del login (MEMORIA.md §4.4: "13 intentos
+--     dejan 10 filas, no 14") y por la misma razón: si se contaran, cada intento
+--     rechazado extendería la ventana y el bloqueo sería permanente sin que nadie
+--     pudiera desbloquearse.
+--
+-- Y lo que sí queda escrito como limitación, porque es una decisión y no un
+-- olvido: un parseo que se PAGÓ y después falló (502 del proveedor, 504 por
+-- timeout, un `finish_reason: 'length'`) CUENTA igual, porque el contador va
+-- antes de la llamada. La alternativa —contar después— es la que no sirve: los
+-- tokens ya se facturaron aunque la respuesta no llegara, y un atacante podría
+-- disparar N llamadas que dan timeout y nunca pagar ninguna. El precio es un
+-- falso positivo acotado: un proveedor caído le puede hacer perder 5 parseos de
+-- su hora al unlucky de turno, que reintenta más tarde.
+-- ============================================================================
+
+create table if not exists cv_parses (
+  -- ↑ `bigint generated always as identity`, igual que en `login_attempts`, y por
+  --   el mismo motivo: esta tabla se BORRA entera seguido (la purga va 24 horas
+  --   atrás) y nunca se lee por id. Un int64 monotónico tiene el índice más chico
+  --   y es más barato de insertar que un uuid de 16 bytes aleatorios. Que `pg` lo
+  --   devuelva como string (db.js §2.4) es irrelevante: el id no se selecciona
+  --   nunca, las consultas son agregados por `user_id`.
+  id bigint generated always as identity primary key,
+
+  -- ↑ El usuario que pagó el parseo. Sale de `requireSession(req).user.id` y de
+  --   ningún otro lado: el body no tiene autoridad sobre esto, y el endpoint no
+  --   acepta `userId` de nadie. Es la regla del proyecto —toda query con datos
+  --   de un usuario filtra por `user_id`— y por eso la columna es la primera
+  --   del índice.
+  --
+  --   `not null` explícito aunque la FK ya lo implique: el `not null` es lo que
+  --   le dice al optimizador que la columna sirve para el índice, y una columna
+  --   nullable en un índice es un índice que Postgres no puede usar para
+  --   `count(*)` sin revisar una entrada más.
+  user_id uuid not null references users (id) on delete cascade,
+
+  -- ↑ CUÁNDO se analizó, no "la hora del día": la ventana es relativa ("más viejo
+  --   que ahora menos una hora") y la comparación con `now()` la hace Postgres.
+  --   Si la ventana la calculara el runtime de Vercel, dos invocaciones con
+  --   relojes distintos aplicarían criterios distintos.
+  --
+  --   `default now()` y no `clock_timestamp()` a propósito: `now()` es el
+  --   timestamp de la TRANSACCIÓN, y el count y el insert del rate limit pasan por
+  --   la misma (es lo que hace que "leer, decidir y escribir" no se puedan
+  --   intercalar — ver `api/lib/cvParseLimit.js`). Con `clock_timestamp()` la
+  --   fila insertada podría tener una hora un poco posterior a la del `count` que
+  --   la autorizó, y el `min(parsed_at)` del `Retry-After` quedaría desfasado.
+  --
+  --   Y `not null default now()` y no un `DEFAULT` en la capa de aplicación: la
+  --   base es la que sabe qué hora es, con el mismo reloj con el que cuenta.
+  parsed_at timestamptz not null default now()
+);
+
+-- ── Índices ─────────────────────────────────────────────────────────────────
+-- (`create index` normal y no concurrently: el runner mete cada archivo en su
+--  propia transacción. La explicación completa está en 001_users.sql.)
+--
+-- El PRIMERO es el que usa el rate limit, y está en el orden exacto que necesita
+-- la query de `assertCvParseAllowed()`:
+--
+--   where user_id = $1 and parsed_at > now() - make_interval(mins => $2)
+--
+-- Con (user_id, parsed_at DESC) eso es un range scan sobre UN SOLO usuario, que
+-- además puede devolver el `min(parsed_at)` (el `Retry-After`) sin ORDER BY ni
+-- sort: el índice ya está ordenado por fecha. Con el orden inverso
+-- (parsed_at, user_id) el count por usuario sería un seq scan de toda la
+-- ventana, que es exactamente el caso que se quiere evitar: la tabla es de
+-- todos los usuarios y la pregunta es siempre de uno.
+--
+-- ▲ `desc` y no `asc` por la misma razón que en 009: para un `min()` sobre un
+--   rango, el índice al revés lo resuelve desde el extremo. Con `asc` el índice
+--   sirve igual para el `count` pero el `min` necesita un sort.
+--
+-- El SEGUNDO es el que hace que la tabla no crezca para siempre. Esta tabla
+-- CRECE SOLA (cada carga de CV es una fila, para siempre, y no hay ninguna
+-- pantalla donde se vea ni forma de borrarla desde la UI), así que sin
+-- `delete ... where parsed_at < now() - 24 hours` se infla de forma invisible. Esa
+-- purga es GLOBAL y por fecha, así que necesita su propio índice: sin él es un
+-- seq scan de toda la tabla. Mismo argumento que el `apify_usage_day_idx` de 007.
+create index if not exists cv_parses_user_time_idx
+  on cv_parses (user_id, parsed_at desc);
+
+create index if not exists cv_parses_time_idx
+  on cv_parses (parsed_at);
+
+-- ── POR QUÉ NO HAY ÍNDICE ÚNICO NI UNA COLUMNA `count` ──────────────────────
+-- A diferencia de `apify_usage`, acá NO hay primary key compuesta ni `count` que
+-- subir, y es a propósito: el rate limit necesita saber CUÁNDO ocurrió cada
+-- parseo, no cuánto hubo en total. Un `unique (user_id, parsed_at)` o un
+-- contador con upsert obligarían a decidir qué pasa con dos parseos en el mismo
+-- microsegundo (que es lo que pasa si un usuario le da doble clic y las dos
+-- invocaciones se serializan en la misma transacción: `now()` es el mismo
+-- timestamp para las dos). Con dos filas idénticas, el `count` es correcto; con
+-- un upsert, la segunda se perdería y el límite contaría menos de lo que houve.
+-- Perder un incremento es peor que tener dos filas que se parecen.

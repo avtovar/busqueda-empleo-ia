@@ -118,6 +118,143 @@ body {
 .links a { color: var(--accent); text-decoration: none; font-size: 0.85rem; }
 .links a:hover { text-decoration: underline; }
 
+.cv-edit-btn { width: 100%; justify-content: center; margin-top: 14px; }
+/* ↑ Botón de "Editar perfil", al final del panel del CV. Ocupa todo el ancho
+   porque es la única acción del panel: si queda chico, al lado de los links, se
+   lee como un link más y nadie lo nota. */
+
+/* ----- Onboarding del CV (CvOnboarding) ----- */
+/* La compuerta del alta (sin perfil) y el editor (modal) comparten todo el CSS
+   de acá, y por eso las clases NO llevan el nombre del componente: son
+   reutilizables por las dos instancias. */
+.cv-gate {
+  /* ↑ La compuerta ocupa TODO el ancho del layout. `.layout` es un grid de dos
+     columnas (320px + 1fr) y esta caja es la única hija en esa rama, así que
+     sin esto se quedaría pegada a la columna de 320px, con media pantalla vacía
+     al lado. */
+  grid-column: 1 / -1;
+  max-width: 720px;
+  margin: 0 auto;
+  width: 100%;
+}
+.cv-gate h2 { font-size: 1.25rem; margin-bottom: 8px; }
+
+.cv-help { color: var(--muted); font-size: 0.84rem; line-height: 1.5; margin: 6px 0; }
+.cv-falta { color: var(--yellow); }
+/* ↑ Aviso de lo que falta para poder guardar. Va en amarillo y NO en rojo a
+   propósito: no es un error, es una condición previa, y el botón igual está
+   deshabilitado. Ponerlo rojo haría pensar que algo salió mal. */
+
+.cv-step { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+.cv-file-label { font-size: 0.85rem; font-weight: 600; }
+.cv-file {
+  /* ↑ El input de archivo nativo se ve distinto en cada sistema operativo, y en
+     algunos el botón es diminuto. `width: 100%` + `padding` lo hace ocupado y
+     clickeable en toda su caja sin perder la accesibilidad del control nativo
+     (que es la que da el diálogo del sistema y el drag & drop). */
+  width: 100%; padding: 10px; font: inherit; font-size: 0.85rem;
+  background: var(--bg2); color: var(--text);
+  border: 1px dashed var(--border-strong); border-radius: var(--radius-sm);
+}
+.cv-file:focus-visible { outline: 2px solid var(--accent2); outline-offset: 2px; }
+.cv-file-info { color: var(--muted); font-size: 0.8rem; margin: 0; }
+/* ↑ Nombre y tamaño del archivo elegido. El tamaño va explícito porque el error
+   más común es "demasiado grande" y el selector de archivos no lo dice. */
+
+.cv-error {
+  /* ↑ El error del backend. Se muestra TAL CUAL vino (el texto lo escribe
+     `api/lib/http.js` para la persona), con un marco rojo y el ícono de alerta
+     del backend. */
+  background: rgba(193, 79, 89, 0.1);
+  border: 1px solid rgba(193, 79, 89, 0.45);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  padding: 10px 12px;
+  font-size: 0.86rem;
+  line-height: 1.5;
+  margin-bottom: 14px;
+}
+.cv-error.limite {
+  /* ↑ El 429 (cuota de CVs por hora) va en ÁMBAR y no en rojo, a propósito: rojo
+     + ⚠ dice "algo se rompió" y el 429 no dice eso, dice "esperá un ratito". El
+     texto del backend es el mismo en los dos casos, así que el color es lo único
+     que distingue "esperá" de "arreglá esto". */
+  background: rgba(165, 98, 18, 0.12);
+  border-color: rgba(165, 98, 18, 0.5);
+}
+.cv-error strong { margin-right: 6px; }
+
+.cv-form { display: flex; flex-direction: column; gap: 4px; }
+.cv-field { display: flex; flex-direction: column; gap: 4px; margin-top: 12px; }
+.cv-field label { font-size: 0.8rem; font-weight: 600; color: var(--muted); }
+.cv-field input,
+.cv-field textarea {
+  /* ↑ Todos los controles del formulario comparten la misma caja: sin esto, cada
+     navegador los dibuja distinto y el formulario se ve como un collage. El
+     `font: inherit` es lo que hace que el texto no se vea con el serif por
+     defecto de un input en algunos navegadores. */
+  font: inherit; font-size: 0.9rem;
+  background: var(--bg2); color: var(--text);
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 9px 11px;
+}
+.cv-field textarea { resize: vertical; min-height: 88px; line-height: 1.5; }
+.cv-field input:focus-visible,
+.cv-field textarea:focus-visible { outline: 2px solid var(--accent2); outline-offset: 1px; border-color: var(--accent); }
+.cv-field input:disabled,
+.cv-field textarea:disabled { opacity: 0.6; cursor: default; }
+
+.cv-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+/* ↑ Años de experiencia y ubicación en la misma fila: los dos son cortos y
+   juntos llenan el ancho. Ponerlos en columnas fijas los deja ilegibles en un
+   celular, así que el breakpoint de abajo los apila. */
+
+.cv-fieldset {
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 12px 14px 14px; margin-top: 16px;
+}
+.cv-fieldset legend { font-size: 0.8rem; font-weight: 700; color: var(--muted); padding: 0 6px; }
+
+.cv-skill-row {
+  /* ↑ Una fila de skill: nombre (flexible), peso (ancho fijo), el porcentaje y el
+     botón de quitar. El `1fr` en el nombre y el ancho fijo en el resto es lo que
+     hace que todas las filas se alineen solas sin hardcodear píxeles. */
+  display: flex; align-items: center; gap: 8px; margin-bottom: 8px;
+}
+.cv-skill-row input[type='text'] { flex: 1; min-width: 0; }
+.cv-skill-row input[type='number'] { width: 84px; flex: none; }
+.cv-skill-pct { color: var(--accent); font-size: 0.8rem; font-weight: 700; min-width: 44px; text-align: right; }
+.cv-skill-del {
+  background: none; border: 1px solid var(--border); color: var(--muted);
+  border-radius: var(--radius-sm); cursor: pointer; font-size: 1rem;
+  width: 30px; height: 30px; flex: none; line-height: 1;
+}
+.cv-skill-del:hover { border-color: var(--red); color: var(--red); }
+.cv-skill-del:focus-visible { outline: 2px solid var(--accent2); outline-offset: 2px; }
+
+.cv-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+.cv-again { margin-top: 14px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.link-button {
+  background: none; border: none; color: var(--accent); cursor: pointer;
+  font: inherit; font-size: 0.84rem; text-decoration: underline; padding: 0;
+}
+.link-button:hover { color: var(--accent2); }
+.link-button:focus-visible { outline: 2px solid var(--accent2); outline-offset: 2px; }
+
+.cv-modal { max-width: 720px; }
+.cv-modal h3 { margin-bottom: 10px; padding-right: 28px; }
+/* ↑ El `padding-right` deja lugar para el botón de cerrar, que es absoluto y se
+   superpone al título si el h3 no deja margen. */
+
+/* En pantallas chicas se apila la fila de años/ubicación y se agranda el alto
+   de las skills: en un celular de 360px, cuatro columnas de input no entran. */
+@media (max-width: 480px) {
+  .cv-row { grid-template-columns: 1fr; }
+  .cv-skill-row { flex-wrap: wrap; }
+  .cv-skill-row input[type='text'] { flex: 1 1 100%; }
+  .cv-skill-pct { text-align: left; }
+}
+
 /* ----- Región tabs ----- */
 .region-tabs { display: flex; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
 .region-tabs-secondary { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }

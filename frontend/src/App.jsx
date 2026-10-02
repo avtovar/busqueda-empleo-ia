@@ -7,6 +7,11 @@ import { useEffect, useState, useCallback, useMemo } from 'react';
 import CvPanel from './components/CvPanel.jsx';
 // ↑ Panel lateral con el perfil del usuario (avatar, sobre mí, skills, enlaces).
 
+import CvOnboarding from './components/CvOnboarding.jsx';
+// ↑ La segunda etapa del alta: subir el CV y revisar el perfil derivado antes de
+//   guardarlo. Es el mismo componente que hace de compuerta (sin perfil) y de
+//   editor (con perfil), y se apoya en el estado `profile` de este componente.
+
 import RegionTabs from './components/RegionTabs.jsx';
 // ↑ Pestañas para cambiar de región (países) o de sección (Propuesta de Interés).
 
@@ -36,11 +41,15 @@ import { regionLabel } from '../../api/lib/regions.js';
 import {
   loadProfile, loadJobs, loadHistory, refreshJobs,
   loadJobDetail, loadCoverLetter, loadAnalytics, searchLinkedInJobs,
+  loadSession,
 } from './api.js';
 // ↑ Importamos las funciones de la capa de API. Cada una hace un fetch al backend
-//   y, si falla, devuelve datos de respaldo para que la UI nunca quede vacía. La
-//   única excepción es loadProfile(): devuelve null y lo dice, porque inventar un
-//   perfil de relleno sería mostrarle a un contador el CV de otra persona.
+//   y, si falla, devuelve datos de respaldo para que la UI nunca quede vacía. Las
+//   únicas excepciones son las del ALTA —`loadProfile()` (devuelve null y lo
+//   dice, porque inventar un perfil de relleno sería mostrarle a un contador el
+//   CV de otra persona), `loadSession()`, `parseCv()` y `saveProfile()`—:
+//   devuelven el motivo del fallo en vez de disimularlo, porque en el alta un
+//   error silencioso es una pérdida de datos.
 
 // Nombres de las regiones para poder hablar de "otras regiones" sin mostrar claves
 // internas como 'argentina' en un texto que lee el usuario.
@@ -153,6 +162,23 @@ export default function App() {
   // ↑ Perfil del usuario (skills, contacto, etc.), o null si todavía no subió su
   //   CV. Empieza en null porque aún no llegó la respuesta de la API.
 
+  const [sesion, setSesion] = useState({ estado: 'desconocido' });
+  // ↑ Qué sabe el frontend de la sesión. Un string y no un booleano porque hay
+  //   TRES respuestas distintas de `/api/me` y la UI las trata distinto:
+  //     'desconocido'  → todavía no respondió (o no hay backend): la app se
+  //                      dibuja como antes, con el FALLBACK de ofertas.
+  //     'logueado'     → hay cookie: si falta el perfil, se muestra la compuerta
+  //                      del CV (401 → /login y 403 → onboarding, según AGENTS).
+  //     'sin-sesion'   → el backend respondió 401: avisar, no mandar a subir un CV.
+  //     'sin-respuesta'→ no hubo respuesta: NO se puede culpar a la sesión.
+  //   La última distinción es la que importa: sin ella, con el server caído se
+  //   le diría a alguien "iniciá sesión" y el login tampoco iba a funcionar.
+
+  const [editando, setEditando] = useState(false);
+  // ↑ Si el editor de perfil está abierto. Es un modal (no una compuerta) porque
+  //   el perfil ya existe: corregir un peso de skill no debería obligar a subir
+  //   el CV otra vez y gastar otro análisis de la cuota del LLM.
+
   const [region, setRegion] = useState('argentina');
   // ↑ Región seleccionada. Arranca en Argentina y cambia al hacer click en las tabs.
 
@@ -237,10 +263,15 @@ export default function App() {
   // traemos el perfil y las ofertas de Argentina en paralelo con Promise.all.
   useEffect(() => {
     (async () => {
-      const [p, j] = await Promise.all([loadProfile(), loadJobs('argentina')]);
-      // ↑ Desestructuración de promesas: p = perfil, j = ofertas. Todas corren a la vez,
-      //   así no esperamos una para empezar la otra.
+      const [s, p, j] = await Promise.all([loadSession(), loadProfile(), loadJobs('argentina')]);
+      // ↑ Desestructuración de promesas: s = sesión, p = perfil, j = ofertas. Todas
+      //   corren a la vez, así no esperamos una para empezar la otra. `/api/me` va
+      //   en el mismo Promise.all aunque no pinte nada por sí solo: la compuerta
+      //   del CV depende de él, y encadenarlo sería esperar una request de más.
 
+      setSesion(s.ok
+        ? { estado: 'logueado', user: s.user, profileComplete: s.profileComplete }
+        : { estado: s.reason });
       setProfile(p);
       setJobsData(j);
       setLoading(false);
@@ -248,6 +279,26 @@ export default function App() {
     })();
   }, []);
   // ↑ Dependencias vacías: este efecto NO vuelve a ejecutarse en los re-renders.
+
+  // Recibe el perfil que el backend GUARDÓ y lo pone en el estado global. Es el
+  // callback que usa `CvOnboarding` en los dos casos (alta y edición).
+  // ↑ Se pasa el perfil LEÍDO de la base, no el borrador del formulario: así el
+  //   `headline` derivado, el orden de las skills por peso y el redondeo de los
+  //   años son los mismos que va a leer el próximo `GET /api/profile`, y el resto
+  //   de la app (el panel, las ofertas, la analítica) matchea contra lo que está
+  //   en la base y no contra lo que el usuario escribió.
+  const handleProfileSaved = useCallback((guardado) => {
+    setProfile(guardado);
+    setSesion((actual) => ({ ...actual, profileComplete: true }));
+    setEditando(false);
+    // ↑ El `profileComplete` se actualiza acá porque **sí** se usa para rutear: la
+    //   compuerta del alta se abre con `sesion.profileComplete === false` (§4.6 de
+    //   MEMORIA.md), así que sin esta línea, guardar el perfil cerraría el modal
+    //   del editor pero dejaría la compuerta del alta dibujada atrás, con un perfil
+    //   ya cargado.
+  }, []);
+  // ↑ useCallback con dependencias vacías: la función no cambia nunca, así que el
+  //   formulario no se re-renderiza de más por culpa de este callback.
 
   // Función que se ejecuta cuando el usuario elige una región/tab. useCallback la
   // "memoriza": solo se recrea si cambia viewMode, evitando renders innecesarios.
@@ -556,6 +607,46 @@ export default function App() {
   // ↑ Sin perfil todavía (o sin keywords usables) esto devuelve '': es preferible un
   //   link de LinkedIn sin filtros a uno que busque la profesión de otra persona.
 
+  // ── Las dos compuertas, y por qué dependen de conocer la sesión ─────────────
+  // `faltaCv` NO es "no hay perfil": es "hay sesión y no hay perfil", que es el 403
+  // con `profileComplete: false` de la tabla de compuertas de AGENTS.md. La
+  // diferencia no es cosmética: con un 401 hay que mandar a /login, y con un 403
+  // hay que pedir el CV. Mostrar el formulario de CV a alguien sin sesión lo
+  // dejaría subir un archivo que el `POST /api/cv/parse` le va a rechazar con 401.
+  const sinSesion = sesion.estado === 'sin-sesion';
+  const faltaCv = sesion.estado === 'logueado' && sesion.profileComplete === false;
+  // ↑ Con `estado: 'desconocido'` o `'sin-respuesta'` NO se muestra ninguna de las
+  //   dos: la app se dibuja como siempre, con las ofertas del FALLBACK. Antes de
+  //   este paso eso era lo único que pasaba; ahora, cuando el backend responde de
+  //   verdad, el alta se vuelve una compuerta de verdad.
+  // ↑ Y por qué el otro condiciones es `profileComplete === false` y NO `!profile`:
+  //   `loadProfile()` devuelve `null` tanto si el backend respondió 403 (de verdad
+  //   no hay perfil) como si la llamada falló (no hay backend, se cortó la red, un
+  //   500). Con `!profile`, un problema de red pintaba el formulario de "subí tu
+  //   CV" a alguien que ya lo subió hace una semana, y el único botón de esa
+  //   pantalla consumía otro análisis de la cuota. `profileComplete` viene del
+  //   `/api/me`, que sí distingue los dos casos, y con la doble condición (que el
+  //   backend diga que falta Y que de verdad no haya perfil) no se abre la
+  //   compuerta ni cuando el `/api/me` dio `true` y el perfil tardó en bajar.
+
+  // Reintenta averiguar quién es el usuario. Lo usa el aviso de sesión caída, y
+  // es la mitad de lo que necesita el futuro login: cuando exista, este mismo
+  // botón deja de hacer falta porque la pantalla de login va a hacer el trabajo.
+  const reintentarSesion = useCallback(async () => {
+    const s = await loadSession();
+    setSesion(s.ok
+      ? { estado: 'logueado', user: s.user, profileComplete: s.profileComplete }
+      : { estado: s.reason });
+  }, []);
+
+  // Abrir y cerrar el editor de perfil. Van en `useCallback` porque son las props
+  // de un componente que se suscribe a `keydown` en `document`: si la función
+  // cambiara de identidad en cada render, el listener se desuscribiria y se
+  // volvería a suscribir en cada cambio de estado de la app, por abrir un modal
+  // que casi no escucha nada.
+  const abrirEditor = useCallback(() => setEditando(true), []);
+  const cerrarEditor = useCallback(() => setEditando(false), []);
+
   return (
     <div className="app">
       {/* ↑ Contenedor general de la app (máximo ancho y centrado). */}
@@ -582,11 +673,46 @@ export default function App() {
         </div>
       </header>
 
+      {sinSesion ? (
+        <main className="layout">
+          {/* ↑ El 401 de la tabla de compuertas: sin cookie válida. La respuesta
+              correcta acá sería redirigir a /login, pero el frontend de auth todavía
+              no existe (es el paso siguiente al onboarding), así que en vez de
+              mandar a una pantalla inexistente se dice lo que pasa y se ofrece
+              reintentar. Cuando se construya el login, este bloque se reemplaza por
+              el redirect y `sinSesion` deja de tener que pintarse. */}
+          <section className="panel cv-gate" aria-labelledby="sesion-title">
+            <h2 id="sesion-title">Tu sesión no está activa</h2>
+            <p className="cv-help">
+              El backend respondió que no hay sesión válida, así que no se puede
+              mostrar tu perfil ni calcular el % de match de las ofertas.
+            </p>
+            <p className="cv-help">
+              La pantalla de inicio de sesión todavía no está construida: es el paso
+              que sigue a este. Con el backend andando, volvé a intentar.
+            </p>
+            <button type="button" className="btn" onClick={reintentarSesion}>
+              Reintentar
+            </button>
+          </section>
+        </main>
+      ) : faltaCv ? (
+        <main className="layout">
+          {/* ↑ El 403 con `profileComplete: false`: hay sesión, falta el CV. La
+              compuerta del alta, y ocupa la pantalla entera porque un perfil
+              ausente matchea con 0% contra TODAS las ofertas: dejarla ver la lista
+              sería mostrarle "no encontramos nada" en vez de "subí tu CV". */}
+          <CvOnboarding onSaved={handleProfileSaved} />
+        </main>
+      ) : (
       <main className="layout">
         {/* ↑ Layout de dos columnas: a la izquierda el CV y a la derecha las ofertas. */}
 
-        <CvPanel profile={profile} />
-        {/* ↑ Le pasamos el perfil por prop; CvPanel lo muestra en el panel lateral. */}
+        <CvPanel profile={profile} onEdit={abrirEditor} />
+        {/* ↑ Le pasamos el perfil por prop; CvPanel lo muestra en el panel lateral.
+            El `onEdit` es opcional: sin él el panel no muestra el botón, y con él
+            abre el MISMO formulario del onboarding en modo modal. Corregir un peso
+            de skill no debería pasar por un parseo del LLM que se paga. */}
 
         <section className="jobs-panel">
           <RegionTabs current={region} onSelect={goToRegion} />
@@ -649,6 +775,23 @@ export default function App() {
           )}
         </section>
       </main>
+      )}
+      {/* ↑ Fin del `layout` normal. Lo de arriba es un ternario de TRES ramas —
+          sin sesión, sin CV, o la app de siempre — y solo se dibuja una. El
+          `<main>` se abre y se cierra en cada rama a propósito: no es duplicado
+          que sobre, y evita un fragmento que escondería la estructura real. */}
+
+      {editando && (
+        <CvOnboarding
+          profile={profile}
+          onSaved={handleProfileSaved}
+          onCancel={cerrarEditor}
+        />
+        // ↑ El MISMO componente del alta, pero con `profile` y `onCancel`: con las
+        //   dos props sabe que es un editor y se muestra como modal sobre la app.
+        //   `onSaved` es el mismo `handleProfileSaved`, así que guardar desde acá
+        //   actualiza el perfil global y cierra el modal en un solo paso.
+      )}
 
       {selectedJob && (
         /* ↑ Render condicional: si hay una oferta seleccionada, aparece el modal de detalle. */

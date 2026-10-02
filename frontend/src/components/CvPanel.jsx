@@ -1,12 +1,18 @@
 // Componente de presentación: muestra el perfil del usuario en el panel lateral.
 // Recibe el perfil por props (lo manda App) y lo "pinta" sin guardar estado propio.
-export default function CvPanel({ profile }) {
+export default function CvPanel({ profile, onEdit }) {
   // ↑ Desestructuración de props: sacamos `profile` directamente en la firma,
   //   como si fuera un parámetro normal de la función.
+  //   `onEdit` es OPCIONAL a propósito: el panel no depende del formulario, solo
+  //   avisa que lo hay. Así el botón "Editar perfil" aparece si y solo si el
+  //   padre sabe abrir el editor, y este componente no importaría el formulario
+  //   para una función que no usa.
 
   if (!profile) return null;
   // ↑ Guardia temprana: si el perfil todavía no cargó (null), no renderizamos nada.
   //   Es un "render condicional" simple para no explotar accediendo a null.
+  //   Con la compuerta del alta, además, este caso es el normal: con sesión y sin
+  //   CV el panel lateral no llega a renderizarse nunca.
 
   const skills = Array.isArray(profile.skills) ? profile.skills : [];
   // ↑ `skills` es un ARRAY de { name, weight }, no el mapa { 'qa': 1 } del origen
@@ -73,6 +79,17 @@ export default function CvPanel({ profile }) {
               del CV por usuario. */}
         </div>
       </div>
+
+      {onEdit && (
+        <button type="button" className="btn secondary cv-edit-btn" onClick={onEdit}>
+          Editar perfil
+        </button>
+        // ↑ Abre el MISMO formulario del onboarding en modo modal, con el perfil
+        //   ya cargado. El motivo de que sea un modal y no un "subir CV" nuevo es la
+        //   cuota: `POST /api/cv/parse` llama a un LLM de pago y cada parseo cuenta
+        //   contra un límite por hora, así que corregir un peso de skill no puede
+        //   pasar por ahí.
+      )}
     </aside>
   );
 }
