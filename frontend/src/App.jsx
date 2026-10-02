@@ -12,6 +12,11 @@ import CvOnboarding from './components/CvOnboarding.jsx';
 //   guardarlo. Es el mismo componente que hace de compuerta (sin perfil) y de
 //   editor (con perfil), y se apoya en el estado `profile` de este componente.
 
+import AuthScreen from './components/AuthScreen.jsx';
+// ↑ La PRIMERA compuerta del alta: entrar o crear la cuenta. Se dibuja en vez de
+//   hacer un redirect a /login porque la app no tiene router, y un condicional que
+//   devuelve el mismo componente siempre resuelve el caso del F5 sobre /login.
+
 import RegionTabs from './components/RegionTabs.jsx';
 // ↑ Pestañas para cambiar de región (países) o de sección (Propuesta de Interés).
 
@@ -41,15 +46,19 @@ import { regionLabel } from '../../api/lib/regions.js';
 import {
   loadProfile, loadJobs, loadHistory, refreshJobs,
   loadJobDetail, loadCoverLetter, loadAnalytics, searchLinkedInJobs,
-  loadSession,
+  loadSession, logout,
 } from './api.js';
 // ↑ Importamos las funciones de la capa de API. Cada una hace un fetch al backend
 //   y, si falla, devuelve datos de respaldo para que la UI nunca quede vacía. Las
 //   únicas excepciones son las del ALTA —`loadProfile()` (devuelve null y lo
 //   dice, porque inventar un perfil de relleno sería mostrarle a un contador el
-//   CV de otra persona), `loadSession()`, `parseCv()` y `saveProfile()`—:
-//   devuelven el motivo del fallo en vez de disimularlo, porque en el alta un
-//   error silencioso es una pérdida de datos.
+//   CV de otra persona), `loadSession()`, `parseCv()`, `saveProfile()`, y las tres
+//   de auth (`login`, `register`, `logout` en `AuthScreen.jsx`)—: devuelven el
+//   motivo del fallo en vez de disimularlo, porque en el alta un error silencioso
+//   es una pérdida de datos.
+// ↑ `login` y `register` NO se importan acá: los usa el componente de la pantalla
+//   de acceso, que es quien tiene el formulario. Acá solo hace falta `logout`, y
+//   hasta él podría haberlo encapsulates el propio header; ver `handleLogout`.
 
 // Nombres de las regiones para poder hablar de "otras regiones" sin mostrar claves
 // internas como 'argentina' en un texto que lee el usuario.
@@ -629,14 +638,62 @@ export default function App() {
   //   backend diga que falta Y que de verdad no haya perfil) no se abre la
   //   compuerta ni cuando el `/api/me` dio `true` y el perfil tardó en bajar.
 
-  // Reintenta averiguar quién es el usuario. Lo usa el aviso de sesión caída, y
-  // es la mitad de lo que necesita el futuro login: cuando exista, este mismo
-  // botón deja de hacer falta porque la pantalla de login va a hacer el trabajo.
-  const reintentarSesion = useCallback(async () => {
-    const s = await loadSession();
-    setSesion(s.ok
-      ? { estado: 'logueado', user: s.user, profileComplete: s.profileComplete }
-      : { estado: s.reason });
+  // Recibe la respuesta de `AuthScreen` cuando el login o el registro salieron
+  // bien, y deja la app en el estado que corresponde.
+  //
+  // El nombre del prop es `onAuthed` y no `onRegistered` a propósito: el registro
+  // y el login devuelven el MISMO shape (`{ ok, user, profileComplete }`) y
+  // llevan al mismo lado. Un solo handler para los dos, si no aparecen dos
+  // funciones idénticas que alguien va a cambiar en uno y olvidar en el otro.
+  const handleAuthed = useCallback(async (datos) => {
+    setSesion({
+      estado: 'logueado',
+      user: datos.user,
+      profileComplete: datos.profileComplete,
+    });
+    // ↑ Se usa el `profileComplete` que VINO, y no un `false` hardcodeado: es lo
+    //   que permite que un login (donde sí puede ser true) entre directo a la app
+    //   en vez de mandar a alguien que ya tiene CV a subirlo otra vez. La regla de
+    //   la compuerta sigue siendo la misma: 401 → login, 403 → CV, y acá
+    //   `profileComplete: false` cae en la misma rama `faltaCv` de siempre.
+
+    if (!datos.profileComplete) return;
+    // ↑ Sin perfil no hay nada que recargar: `loadProfile()` devolvería 403 y las
+    //   ofertas saldrían matcheadas contra nada. La compuerta del CV se encarga.
+
+    // Con perfil hay que recargar TODO lo que se cargó al montar, y no solo el
+    // perfil: las ofertas,% de match y la analítica son de ESTE usuario. Si se
+    // dejara lo que había, la persona vería los datos de la sesión anterior (o
+    // del FALLBACK de ejemplo) con su nombre arriba.
+    const [p, j] = await Promise.all([loadProfile(), loadJobs('argentina')]);
+    setProfile(p);
+    setJobsData(j);
+  }, []);
+  // ↑ `useCallback` con deps vacías. No hay Circular: este callback solo llama
+  //   setters de estado.
+
+  // Cerrar sesión. El logout del backend NO borra nada del servidor (no hay tabla
+  // de sesiones: manda la cookie con Max-Age=0), y por eso acá hay que limpiar
+  // el estado local sí o sí.
+  const handleLogout = useCallback(async () => {
+    await logout();
+    // ↑ Se IGNORA el resultado a propósito. `logout()` nunca lanza y devuelve
+    //   `false` si no hubo backend; si el server estaba caído, la cookie sigue
+    //   viva en el navegador y el logout se ve igual. Es la decisión correcta
+    //   porque la alternativa (dejar al usuario en la app con un botón que no
+    //   hace nada) es peor que un logout optimista que se corrige en el próximo
+    //   `GET /api/me`, que devuelve 401 y vuelve a pintar el acceso.
+
+    setSesion({ estado: 'sin-sesion' });
+    setProfile(null);
+    setAnalytics(null);
+    setEditando(false);
+    setJobsData({ jobs: [], _online: false });
+    // ↑ Se vacían los datos de usuario uno por uno y no con un `reset` de la app.
+    //   Motivo: `jobsData` con `_online: false` es lo que hace que la app muestre
+    //   el aviso de "modo demo" si alguien fuerza la vista, y `analytics: null` es
+    //   lo que la pestaña de análisis interpreta como "no cargado". Un estado con
+    //   la forma equivocada rompe el render en silencio.
   }, []);
 
   // Abrir y cerrar el editor de perfil. Van en `useCallback` porque son las props
@@ -662,40 +719,49 @@ export default function App() {
             {/* ↑ Sin perfil no mostramos nombre ni profesión, porque no hay ninguno:
                 poner un nombre o un cargo inventados sería el de otra persona. */}
           </div>
-          <button
-            className="theme-toggle"
-            type="button"
-            aria-pressed={theme === 'dark'}
-            onClick={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')}
-          >
-            {theme === 'dark' ? '☀️ Modo claro' : '🌙 Modo oscuro'}
-          </button>
+          <div className="header-actions">
+            <button
+              className="theme-toggle"
+              type="button"
+              aria-pressed={theme === 'dark'}
+              onClick={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')}
+            >
+              {theme === 'dark' ? '☀️ Modo claro' : '🌙 Modo oscuro'}
+            </button>
+
+            {/* ↑ Con `sesion.estado === 'logueado'` y no sin condición: el header
+                vive FUERA del condicional de las compuertas (line 747), así que sin
+                este chequeo el botón "Salir" también se le mostraría a un visitante
+                que no tiene sesión, que es un botón que no hace nada. El tema sí
+                queda siempre: cambiar el fondo tiene sentido también en el login. */}
+            {sesion.estado === 'logueado' && (
+              <button className="theme-toggle" type="button" onClick={handleLogout}>
+                {/* ↑ Va junto al toggle de tema y no abajo de la pantalla: salir de la
+                    sesión es un estado del chrome, no una acción de contenido. Es el
+                    mismo `theme-toggle` a propósito (mismo tamaño, misma forma) y no
+                    un `btn` común, para que no parezca la acción principal de la app:
+                    cerrar sesión es algo que se hace de vez en cuando. */}
+                {sesion.user?.email ? `Salir (${sesion.user.email})` : 'Salir'}
+                {/* ↑ Con el correo al lado, para que quien tiene la sesión abierta en
+                    una computadora compartida sepa a quién está por cerrar. Sale del
+                    `user` que ya está en el estado y no de un fetch nuevo. */}
+              </button>
+            )}
+          </div>
         </div>
       </header>
 
       {sinSesion ? (
-        <main className="layout">
-          {/* ↑ El 401 de la tabla de compuertas: sin cookie válida. La respuesta
-              correcta acá sería redirigir a /login, pero el frontend de auth todavía
-              no existe (es el paso siguiente al onboarding), así que en vez de
-              mandar a una pantalla inexistente se dice lo que pasa y se ofrece
-              reintentar. Cuando se construya el login, este bloque se reemplaza por
-              el redirect y `sinSesion` deja de tener que pintarse. */}
-          <section className="panel cv-gate" aria-labelledby="sesion-title">
-            <h2 id="sesion-title">Tu sesión no está activa</h2>
-            <p className="cv-help">
-              El backend respondió que no hay sesión válida, así que no se puede
-              mostrar tu perfil ni calcular el % de match de las ofertas.
-            </p>
-            <p className="cv-help">
-              La pantalla de inicio de sesión todavía no está construida: es el paso
-              que sigue a este. Con el backend andando, volvé a intentar.
-            </p>
-            <button type="button" className="btn" onClick={reintentarSesion}>
-              Reintentar
-            </button>
-          </section>
-        </main>
+        <AuthScreen onAuthed={handleAuthed} />
+        // ↑ El 401 de la tabla de compuertas: sin cookie válida. Se DIBUJA la
+        //   pantalla de acceso acá, en vez de hacer un redirect a una ruta: la app
+        //   es de una sola página, no hay router, y una ruta /login de verdad
+        //   tendría que resolver el caso del refresh del navegador (F5 sobre
+        //   /login tiene que volver a pintar el login, no la app). Un condicional
+        //   que devuelve el mismo componente siempre resuelve eso sin router.
+        //   El error NO se muestra en un banner de la app: con la pantalla de
+        //   acceso delante no hay nada más que leer, y el mensaje va adentro del
+        //   formulario, que es donde está el campo que hay que corregir.
       ) : faltaCv ? (
         <main className="layout">
           {/* ↑ El 403 con `profileComplete: false`: hay sesión, falta el CV. La

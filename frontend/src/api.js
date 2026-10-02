@@ -445,3 +445,132 @@ export async function saveProfile(profile) {
   }
   return data;
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// AUTENTICACIÓN (paso 8)
+// ════════════════════════════════════════════════════════════════════════════
+//
+// Los tres helpers de abajo son los únicos que hacen `POST` con body chico de JSON
+// o sin body, y a diferencia de las lecturas NO tienen FALLBACK: acá no hay una
+// app que mostrar con datos inventados. Si el backend no responde, lo que hay que
+// poder mostrar es "no pudimos conectarnos", y un login que devuelve un usuario
+// falso sería PEOR que un error.
+//
+// OJO con las cookies: la de sesión es HttpOnly, así que ni este código ni la UI la
+// ven. Por eso no hay `credentials: 'include'` explícito — el mismo origen (el proxy
+// de Vite en desarrollo, el rewrite en producción) ya envía la cookie sola. Ponerla
+// no arregla nada y en un dominio distinto sí mandaría una petición CORS que el
+// backend no responde.
+//
+// Y OJO con el contrato de error: estos LANZAN (no devuelven `{error}`), igual que
+// `parseCv` y `saveProfile`. El motivo está en el JSDoc de `apiError`.
+
+/**
+ * Crea la cuenta y deja la sesión abierta (`POST /api/register`).
+ *
+ * Devuelve `profileComplete: false` SIEMPRE, y eso no es una suposición: el backend
+ * lo sabe porque acaba de insertar la fila en `users` y no existe perfil todavía.
+ * El frontend NO tiene que deducirlo, pero igual usa lo que vino en vez de
+ * hardcodear `false`, para que el día de mañana el endpoint pueda devolver otra
+ * cosa sin que el ruteo se quede mintiendo.
+ *
+ * El 409 (correo repetido) es un oráculo de enumeración que el backend acepta a
+ * conciencia: el mensaje "Ya existe una cuenta con ese correo" ayuda más de lo que
+ * filtra, porque acáEnumerar correos no sirve para robar una clave (para eso está
+ * el login, que responde siempre con el mismo 401). Por eso el mensaje se muestra
+ * tal cual, sin convertirlo en un error genérico.
+ *
+ * @param {{email: string, password: string}} credenciales
+ * @returns {Promise<{ok: true, user: object, profileComplete: boolean}>}
+ * @throws {Error} Con `status` 400, 409, 429 o 0.
+ */
+export async function register({ email, password }) {
+  let response;
+  try {
+    response = await fetch('/api/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+  } catch {
+    // ↑ `catch` sin binding: no se usa el error y no se quiere la variable.
+    //   El 0 es el que separa "el backend dijo que no" de "no hubo backend": con
+    //   server caído la UI tiene que decir "no pudimos conectarnos" y no
+    //   "revisá tu correo", que sería un consejo inútil.
+    throw apiError(0, null, 'No se pudo conectar con el backend. ¿Está corriendo el server?');
+  }
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw apiError(response.status, data, 'No se pudo crear la cuenta.');
+  }
+  return data;
+}
+
+/**
+ * Entra con correo y clave (`POST /api/login`).
+ *
+ * El 401 es SIEMPRE el mismo texto, esté o no el correo, y eso no es un descuido
+ * del backend: si distinguiera los dos casos, cualquiera podría usar el login para
+ * descubrir qué correos tienen cuenta. Por eso el frontend no intenta "mejorar" el
+ * mensaje ni completar con un "¿registrarte?" según el status: el 401 no dice nada
+ * de qué lado está el problema.
+ *
+ * OJO con el `profileComplete` del login: NO es siempre `false` como en el
+ * registro. Quien vuelve a entrar ya tiene perfil, y mandar a esa persona al
+ * onboarding del CV la haría subir el CV otra vez y gastar otra vez la cuota del
+ * LLM. Por eso `loadSession()` consulta el valor y el ruteo lo usa tal cual.
+ *
+ * @param {{email: string, password: string}} credenciales
+ * @returns {Promise<{ok: true, user: object, profileComplete: boolean}>}
+ * @throws {Error} Con `status` 400, 401, 429 o 0.
+ */
+export async function login({ email, password }) {
+  let response;
+  try {
+    response = await fetch('/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+      // ↑ Sin `AbortSignal.timeout` a propósito, y es una excepción consciente: acá
+      //   no hay ni LLM ni upload, es un login contra la base. El peor caso de colgar
+      //   es esperar el `maxDuration` de la función y recibir un 5xx, que se muestra
+      //   como error normal. Un timeout propio solo agregaría un texto más.
+    });
+  } catch {
+    throw apiError(0, null, 'No se pudo conectar con el backend. ¿Está corriendo el server?');
+  }
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    // El 429 del login trae `Retry-After`, y `apiError` lo pasa a `.retryAfter`:
+    // la pantalla de acceso lo muestra como "esperá un ratito" en vez de error.
+    throw apiError(response.status, data, 'No se pudo iniciar sesión.');
+  }
+  return data;
+}
+
+/**
+ * Cierra la sesión (`POST /api/logout`).
+ *
+ * No borra nada del servidor: no hay tabla de sesiones. El backend manda la misma
+ * cookie con `Max-Age=0`, que es lo que la hace desaparecer del navegador.
+ *
+ * Por eso esta función NO lanza cuando el backend no responde, y el comentario es
+ * el que explica por qué: si el logout falló porque no hay conexión, la cookie
+ * sigue viva del lado del browser, y la UI igual tiene que volver a la pantalla de
+ * acceso. Tirar el error dejaría al usuario trabado en una sesión que ya no quiere,
+ * esperando un reintento de algo que no hace falta. La cookie sola no alcanza para
+ * volver a entrar: el `GET /api/me` siguiente la invalida si el servidor no la
+ * reconoce, y la UI igual fuerza el estado local.
+ *
+ * @returns {Promise<boolean>} `true` si el backend confirmó, `false` si no respondió.
+ */
+export async function logout() {
+  try {
+    const response = await fetch('/api/logout', { method: 'POST' });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}

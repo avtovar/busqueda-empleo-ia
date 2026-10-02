@@ -392,10 +392,10 @@ El **paso 5 (auth) también está HECHO y VERIFICADO contra un Postgres real**: 
 `api/lib/auth.js` (cookie firmada + las dos compuertas), `api/lib/http.js` (errores, JSON,
 cookies, `withErrorHandling`), `api/lib/rateLimit.js` (rate limit del login sobre la tabla
 `login_attempts` de `migrations/009_login_attempts.sql`) y los endpoints `register.js`,
-`login.js`, `logout.js`, `me.js` y `health.js`. **Lo que NO hay todavía**: los formularios de login y registro. Los endpoints existen y
-funcionan, pero no hay pantalla para llegar a ellos: `App.jsx` muestra un aviso de sesión
-inválida con un botón de reintento, que es el andamiaje mínimo que hace falta hasta que el
-paso 8 escriba el login de verdad.
+`login.js`, `logout.js`, `me.js` y `health.js`. **Las dos mitades del paso 8 están HECHAS**: los
+endpoints de arriba, más la pantalla de acceso (`frontend/src/components/AuthScreen.jsx`),
+los helpers `register`/`login`/`logout` de `frontend/src/api.js` y el ruteo por compuertas
+en `App.jsx` (que ya no muestra el aviso de sesión inválida).
 
 **Ojo con las tres capas de auth, que están separadas a propósito**:
 
@@ -506,10 +506,60 @@ Ojo con cuatro decisiones de esa capa, que no se deducen del código:
   esperando a un LLM de pago. El abort se traduce a **504** (el mismo código que devuelve
   `cv/parse.js`) y no a `status: 0`, que queda para "no hubo conexión".
 
-**Lo que NO hay todavía**: los formularios de login y registro (paso 8), y una compuerta en el
-alta. El rate limit del LLM limita **una** cuenta: con el registro abierto y sin verificación de
-correo, un adversario se registra diez cuentas y tiene diez cuotas. La salida es una compuerta
-en el alta, **no** subir el límite por usuario. Queda anotado en `MEMORIA.md` §5, duda 5.
+**Lo que NO hay todavía**: una compuerta en el alta. El rate limit del LLM limita **una** cuenta:
+con el registro abierto y sin verificación de correo, un adversario se registra diez cuentas y
+tiene diez cuotas. La salida es una compuerta en el alta, **no** subir el límite por usuario. La
+pantalla de acceso del paso 8 **no** la implementa, a propósito: sin un proveedor de correo no
+hay forma honesta de verificar que el correo existe, y un campo de "código de invitación" sin un
+dueño que reparta códigos es una formalidad. Queda anotado en `MEMORIA.md` §5, duda 5.
+
+### La pantalla de acceso se DIBUJA, no se redirige
+`AuthScreen.jsx` se renderiza desde el condicional `sinSesion` de `App.jsx`, y no hay un router
+ni una ruta `/login`. Tres razones, en orden de peso:
+
+- **El F5 sobre `/login` tiene que volver a pintar el login.** Con router eso se resuelve con una
+  regla de redirección; sin router, el condicional que devuelve el mismo componente cada vez
+  resuelve el caso sin una sola ruta nueva.
+- **`sin-sesion` es el ÚNICO estado que abre la pantalla.** `'desconocido'` (el `/api/me` todavía
+  no respondió) y `'sin-respuesta'` (no hubo backend) tienen que **conservar las ofertas
+  `FALLBACK`**: con el server caído, mandar a alguien a un login que tampoco va a funcionar es
+  peor que mostrarle la app en modo demo. Es la distinción que justifies el string de estado en
+  vez de un booleano.
+- **El 401 no se corrige con un banner de error arriba.** Con la pantalla delante no hay nada más
+  que leer, así que el error va adentro del formulario, que es donde está el campo que hay que
+  corregir.
+
+Ojo con cuatro decisiones que no se deducen del código:
+
+- **El login y el registro son UN componente con un modo interno**, no dos. Los dos formularios
+  piden exactamente lo mismo, y el error del 409 convive con el 401 del login en la misma
+  pantalla. Cambiar de modo **limpia el error y la clave, pero no el correo**.
+- **`autocomplete` cambia según el modo** (`current-password` en login, `new-password` en
+  registro). Con `new-password` en el login el gestor de contraseñas se niega a autocompletar; con
+  `current-password` en el registro ofrece *generar* una clave y se la mete al usuario.
+- **NO se valida el formato del correo ni el largo de la clave en el cliente.** Se manda y se
+  muestra lo que responda el backend (`auth.js:readCredentials` es quien tiene las reglas). Un
+  formulario con su propia versión de "esto no es un correo" muestra un error distinto del del
+  servidor, y ahí hay dos verdades. La única guarda local es el botón deshabilitado con los
+  campos vacíos, que evita un 400 previsible y no es una regla de negocio.
+- **`logout()` NO lanza y devuelve `false` si el backend no responde.** El logout no borra nada
+  del servidor: manda la cookie con `Max-Age=0`. Si el server estaba caído, la cookie sigue viva en
+  el navegador, y `handleLogout` pone `estado: 'sin-sesion'` igual. La alternativa —dejar al
+  usuario en la app con un botón que no hace nada— es peor que un logout optimista que el próximo
+  `GET /api/me` corrige con un 401. `handleLogout` **limpia el estado local entero**
+  (`profile`, `analytics`, `jobsData`, `editando`): las ofertas y la analítica son de ESE
+  usuario, y dejarlas sería mostrarle a alguien los datos de la sesión anterior con su nombre
+  arriba.
+
+Y dos cosas que se ven exercising y que son de `login.js`, no del frontend:
+
+- **Una clave de menos de 8 caracteres da 400 y NO cuenta como intento.** `readCredentials`
+  corre antes de `assertLoginAllowed`, así que no se llega al rate limit. No es una falla: ese
+  intento no corrió bcrypt ni tocó `users`. Pero sí significa que un 429 tiene que armarse con
+  claves largas y **deben pasar por la validación de formato**, o el test no mide lo que dice medir.
+- **El límite es por PAREJA (correo+ip), no por correo ni global.** `LOGIN_LIMIT_MAX_PER_PAIR`
+  viene en 10 y `LOGIN_LIMIT_MAX_PER_IP` en 30, con ventana de 15 min. Para ejercitar el 429 hay
+  que vaciar `login_attempts` después, porque la ventana no expira en un test.
 
 | Skill | Cubre |
 |---|---|

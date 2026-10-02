@@ -948,6 +948,46 @@ el campo del multipart se llama `cv` y viaja con nombre y tipo, `saved: false` e
 salen con el mensaje del backend sin reescribir, con `status` y con `retryAfter`; el timeout
 da 504 y una conexión rechazada da `status: 0`.
 
+### 4.7 La pantalla de acceso: cinco decisiones que no se deducen del código (paso 8)
+
+Además de las cuatro que están resumidas en `AGENTS.md`, hay tres cosas de esta pantalla que
+salieron de exercising y que no se ven leyendo el componente:
+
+**1. El logout IGNORA la respuesta del backend, y eso es deliberado.** `logout()` devuelve
+`false` si no hubo conexión y nunca lanza. Si `handleLogout` tirara, un logout con el server
+caído dejaría al usuario en la app con un botón que no hace nada, que es el peor resultado de
+los tres posibles. El logout optimista que manda la pantalla igual es el correcto, porque el
+próximo `GET /api/me` devuelve 401 y devuelve al login. Y el estado local se limpia entero
+(`profile`, `analytics`, `jobsData`, `editando`), no a medias: las ofertas y la analítica son de
+ESE usuario y con el nombre de otro arriba es una fuga de datos, no un detalle cosmético.
+
+**2. `handleAuthed` recarga el perfil Y las ofertas, y solo si hay perfil.** La tentación es
+usar solo el `profileComplete` que vino en la respuesta del login y ya está. Con
+`profileComplete: false` no hay nada que recargar, y con `true` sí: el `loadProfile()` que se
+hizo al montar devolvió 401, así que sin este `Promise.all` la persona entra a la app con
+`profile: null` y ve las ofertas `FALLBACK` con el nombre del usuario arriba. Las dos ofertas
+tiene que volver a salir de `/api/jobs`, no solo el perfil, porque el % de match es de la
+persona que acaba de entrar.
+
+**3. La clave corta da 400 y NO consume cuota del rate limit, y eso rompe los tests.** En
+`login.js`, `readCredentials` corre antes de `assertLoginAllowed`, así que una clave de menos
+de 8 caracteres ni llega a contarse como intento. Para exercitar el 429 hay que mandar claves
+**largas** y de formato válido: un `'mala' + i` de 5 a 6 caracteres produce 400
+en los 25 intentos, no un solo 429, y el test pasa "verde" sin haber probado nada. Pasa lo mismo
+con el límite de IP: como es por **pareja** (correo+ip), un test que cambia de correo cada
+intento mide `por_ip` y no `por_pareja`, y no mide la capa que dice medir.
+
+Verificado con `npm run check` (22 archivos), `npm run build` (44 módulos), **40 aserciones** de
+los helpers reales de `frontend/src/api.js` contra los handlers reales de `api/` sobre un
+Postgres 16, y **19 de render** de `AuthScreen` con `react-dom/server` (que es lo único que
+detecta una variable sin definir dentro de un JSX: `node --check` no parsea `.jsx` y
+`npm run build` compila sin ejecutar). Sin Apify, sin LLM y sin proveedor de correo.
+
+Un detalle del render que costó un rato y que va a volver a pasar: `renderToStaticMarkup` emite
+`autoComplete` y `minLength` en camelCase, aunque en el DOM real sean minúsculas. Buscar
+`autocomplete=` en minúsculas sobre el HTML renderizado da FAIL sobre un componente que está
+bien.
+
 ---
 
 ## 5. Dudas que siguen abiertas
@@ -974,7 +1014,41 @@ aparecen durante la implementación. **Ninguna bloquea el paso 1.**
    los usuarios reales por el del atacante) sino poner una compuerta en el alta: verificación
    de correo, lista de invitados, o un límite de altas por IP con la tabla de `login_attempts`.
    **Queda sin decidir cuál de las tres**; es la misma pregunta que la duda 4, vista desde el
-   lado del costo.
+   lado del costo. Ver la resolución del paso 8 más abajo, que la deja abierta a propósito.
+
+   **Decidido en el paso 8 (2026-10-01): NO se implementa todavía, y el registro queda abierto.**
+   El razonamiento, para que no se reabra por olvido: las tres salidas posibles tienen
+   requisitos que el proyecto hoy no tiene. La verificación de correo necesita un proveedor
+   (Resend, Postmark, SES) y una tabla de tokens con expiración: son una dependencia nueva, una
+   variable de entorno con una clave de otro dueño y un endpoint más, a cambio de evitar un
+   gasto acotado que el rate limit ya limita por cuenta. La lista de invitados necesita alguien
+   que reparta códigos, y hoy no hay nadie: el dueño de la app tendría que hacerlo a mano por
+   cada alta. El límite de altas por IP sí se puede hacer hoy con `login_attempts`, pero es
+   el que menos sirve —el atacante que se registra diez cuentas lo hace con IPs distintas, y el
+   límite castiga al que comparte conexión, que es un usuario real—. O sea: la única que
+   funciona de verdad es la primera, y la primera es la cara. Queda para más adelante, junto
+   con el paso 9 y el de afinar el gasto del LLM, que son más urgentes.
+
+   Lo que SÍ se hizo en el paso 8 es dejar la decisión **explícita y no accidental**: la pantalla
+   de acceso tiene un solo punto de alta, así que agregar una compuerta después es agregar un
+   paso a `AuthScreen.enviar` y una tabla, no rediseñar el login. Y el 429 del parseo ya dice
+   qué hacer cuando alguien agota su cuota, que es la mitad del problema del costo.
+
+6. **`AuthScreen` es una pantalla, no un router (2026-10-01).** Decisión de arquitectura, no
+   detalle: la app no tiene router ni rutas, y el login se dibuja desde el condicional
+   `sinSesion` de `App.jsx`. El motivo concreto es el F5 —con una ruta `/login` real, recargar
+   esa URL tiene que volver a pintar el login, y eso pide una regla de redirección que hoy no
+   existe y que no vale la pena agregar para un caso de un solo estado—. La consecuencia a
+   tener presente: **no hay URL para compartir ni para volver con un link**, y no hay historial
+   del navegador. Si algún día se quiere eso, es el momento de meter un router, y el condicional
+   es el que se reemplaza.
+
+7. **El estado de sesión es un string de cuatro valores, no un booleano (2026-10-01).**
+   `'desconocido'`, `'logueado'`, `'sin-sesion'`, `'sin-respuesta'`. La distinción que obliga
+   a tener cuatro y no dos es `'sin-respuesta'`: sin ella, con el server caído se le diría a
+   alguien "iniciá sesión" y el login tampoco funcionaría, que es peor que mostrarle la app en
+   modo demo con las ofertas `FALLBACK`. El costo es que cada consumidor tiene que decidir qué
+   hacer con los cuatro, y el que se paga caro es `App.jsx` cuando llega un estado nuevo.
 
 ---
 
@@ -1094,8 +1168,23 @@ Cada paso termina con `npm run check` + `npm run build` verdes (ver `AGENTS.md`)
    `frontend/src/api.js` (`loadSession`, `parseCv`, `saveProfile` y el helper `apiError`) y el
    ruteo de las dos compuertas en `App.jsx`. Las cuatro decisiones que no se deducen del código
    están en **§4.6**.
+   7b. **Pantalla de acceso (login + registro) — HECHO y VERIFICADO (2026-10-01).** Es el "paso 8"
+   de la numeración de `AGENTS.md`, **no** el paso 8 de este plan (que son las ofertas: ver la
+   nota en el punto 8). Los endpoints de auth ya estaban desde el punto 5 de este plan; lo que
+   faltaba era la mitad de adelante: `frontend/src/components/AuthScreen.jsx` (un componente con
+   un modo interno, no dos), los helpers `register`, `login` y `logout` de `frontend/src/api.js`,
+   el botón de salir en el header y el ruteo por compuertas de `App.jsx`. Verificado con 40
+   aserciones de los helpers reales contra los handlers reales de `api/` sobre un Postgres 16
+   (401/400/409/429, cookie `HttpOnly` + `SameSite=Lax`, logout, `status: 0` sin backend y
+   aislamiento entre dos usuarios) y 19 de render de `AuthScreen` con `react-dom/server`.
+   Las tres decisiones que no se deducen del código están en **§4.7**.
 8. **Ofertas**: funciones serverless `/api/jobs`, `/api/job`, `/api/history`, `/api/refresh`,
    `/api/cover-letter`, `/api/analytics`. Todo con `requireSession` y `withPortal`.
+   **OJO con el número: hay dos listas y este "paso 8" NO es el login.** La numeración de
+   `AGENTS.md` (la del "estado actual") llega hasta 8 contando la pantalla de acceso como paso
+   8, mientras que el plan de esta lista llama "paso 8" a las ofertas. Cuando un documento
+   diga "paso N", fijate en cuál de las dos listas está escribiendo; a partir de acá las dos se
+   diferencian y el número solo no dice nada.
 9. **Directorio de Argentina** (punto 11): sin scraping, links de búsqueda prellenados con las
    keywords del usuario. **Verificar cada URL antes de meterla.**
 10. **Apify**: `/api/linkedin-search` con el token del servidor, límite diario por usuario.

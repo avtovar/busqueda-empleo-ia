@@ -711,3 +711,57 @@ body {
   --gap-color: #fca5a5;
   --gov-color: #a78bfa;
 }
+
+/* ── Pantalla de acceso (paso 8) ─────────────────────────────────────────── */
+/* ↑ Va al FINAL del archivo a propósito, aunque las variables de arriba estén
+   abajo: el orden de un CSS no importa para estas reglas porque no compiten con
+   ninguna otra (son clases nuevas, no overrides). Lo que sí importa es que el
+   bloque quede junto, para que se lea entero. */
+.header-actions {
+  /* Agrupa el toggle de tema y el botón de salir. Sin este wrapper, el header
+     tendría dos hijos sueltos y el layout los separaría como bloques. */
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.auth-wrap {
+  /* Centrado vertical y horizontal, con un alto mínimo de pantalla. */
+  min-height: 100vh;
+  min-height: 100dvh;
+  /* ↑ Las dos, y en este orden: `dvh` es la unidad que tiene en cuenta la barra
+     de direcciones del móvil, así que en un teléfono la tarjeta no queda cortada
+     abajo al scrollear. `vh` queda como fallback para navegadores viejos. */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+}
+.auth-panel {
+  /* Tarjeta angosta: un formulario de dos campos en un panel del ancho de la app
+     se ve estirado y raro. */
+  width: 100%;
+  max-width: 420px;
+}
+.auth-panel .cv-header h2 {
+  margin: 0;
+}
+.btn-ghost {
+  /* Botón secundario: mismo tamaño, sin fondo. Lo usa el link de "cambiar de
+     modo" del login, que es una acción de la MISMA jerarquía y no un afterthought,
+     así que no va chico. */
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+.btn-ghost:hover:not(:disabled) {
+  background: var(--panel-2, rgba(255, 255, 255, 0.04));
+  color: var(--text);
+}
+/* ↑ `--panel-2` con fallback: si el tema no define esa variable, el hover usa un
+   gris tenue explícito. Es un `var()` con segundo argumento a propósito, que es lo
+   que permite que el bloque no quede sin fondo si alguien cambia el tema. */
+.btn-ghost:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

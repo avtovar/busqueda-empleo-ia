@@ -18,6 +18,11 @@ dist/
 *.pfx
 secrets/
 credentials.json
+serviceAccountKey.json
+
+# Carpeta LOCAL y privada: lo que va acá nunca viaja a GitHub. Es el lugar para
+# los .env de trabajo, los CVs de prueba y los dumps de la base.
+no_subir/
 
 # Logs y ruido local
 *.log
