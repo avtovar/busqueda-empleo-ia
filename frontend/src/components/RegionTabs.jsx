@@ -19,6 +19,28 @@ const TABS = Object.keys(REGIONS).map((key) => ({
   //   presentacional que vive en el frontend, con un globo como respaldo.
 }));
 
+// Las pestañas que NO son países: son SECCIONES de la app (una pantalla propia que
+// se abre en la misma columna de las ofertas). Viven aparte de `REGIONS` porque
+// `REGIONS` es la lista de países que el backend rankea, y "Propuesta de Interés" o
+// "Directorio" no son lugares: si entraran ahí, `matcher` trataría de asignar
+// ofertas a una región que no existe.
+//
+// ESTE ES EL ÚNICO LUGAR QUE DECLARA CUÁLES SON, y `App.jsx` y `Toolbar.jsx` lo
+// importan en vez de repetir la comparación con `region === 'analisis' || …`:
+// esa lista repetida es exactamente el modo de falla de este archivo. Con una
+// tercera sección olvidada en Toolbar, el botón "Actualizar búsqueda" aparecería en
+// una vista que no tiene ofertas y llamaría a un endpoint que no le corresponde —
+// un botón que existe y no hace nada (o peor, borra la caché de otro).
+export const SECCIONES = ['analisis', 'directorio'];
+
+// ¿La pestaña activa es una sección (no una región con ofertas)?
+export function esSeccion(region) {
+  return SECCIONES.includes(region);
+  // ↑ El nombre NO dice cuál: la pregunta que hacen los tres consumidores es siempre
+  //   la misma ("¿esto es una lista de ofertas?"), y las tres respuestas distintas
+  //   que hay se manejan con un `switch` en cada uno, no con tres booleanos.
+}
+
 // Componente "tontito" (sin estado): solo recibe la región actual y la función
 // que avisa al padre cuando el usuario elige otra región.
 export default function RegionTabs({ current, onSelect }) {
@@ -47,7 +69,12 @@ export default function RegionTabs({ current, onSelect }) {
       </div>
 
       {/* Fila 2 (debajo de los países): secciones especiales, escritas a mano.
-          Cada una vive en su propio espacio (pestaña separada). */}
+          Cada una vive en su propio espacio (pestaña separada).
+          Van acá y NO en la fila de arriba porque esa fila se GENERA de `REGIONS`
+          (son los países que el backend rankea) y estas dos no son países: agregarlas
+          a la lista de arriba las haría desaparecer en el próximo cambio de
+          `regions.js`, que es el mecanismo que hace que la fila de arriba no pueda
+          quedar vieja sola. */}
       <div className="region-tabs-secondary">
         <button
           className={`region-tab analisis-tab${current === 'analisis' ? ' active' : ''}`}
@@ -55,6 +82,18 @@ export default function RegionTabs({ current, onSelect }) {
         >
           📊 Propuesta de Interés
         </button>
+        <button
+          className={`region-tab directorio-tab${current === 'directorio' ? ' active' : ''}`}
+          onClick={() => onSelect('directorio')}
+        >
+          🔗 Directorio de empleo
+        </button>
+        {/* ↑ Mismo patrón exacto que el de arriba, con su propio modificador de
+            clase (`.directorio-tab`) aunque hoy NO tenga regla de CSS: el
+            modificador es el lugar donde colgaría un ajuste visual de esta pestaña
+            cuando haga falta, y hoy no hace falta ninguno porque hereda todo de
+            `.region-tab`. La que sí lo tenía era `.consultoras-tab`, y se borró con
+            el tracker de outreach en el paso 3. */}
       </div>
     </div>
   );

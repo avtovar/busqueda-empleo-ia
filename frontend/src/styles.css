@@ -246,6 +246,62 @@ body {
 /* ↑ El `padding-right` deja lugar para el botón de cerrar, que es absoluto y se
    superpone al título si el h3 no deja margen. */
 
+/* ── Zona de peligro: borrar la cuenta (paso 11) ───────────────────────────── */
+/* Va al FINAL del bloque del CV y no junto al `.btn` de "Editar perfil" por una
+   razón de peso visual: lo que borra datos tiene que pesar distinto de lo que
+   edita datos, aunque los dos botones estén en el mismo panel. */
+.cuenta-zona {
+  margin-top: 20px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.btn-link-peligro {
+  /* Un link, no un botón de acción: la acción destructiva NO compite con
+     "Editar perfil" ni con nada. Ni degradado, ni sombra, ni el hover que levanta
+     1px: el tamaño de un botón comunica que se espera una decisión, y acá lo que
+     se espera es que nadie le haga click. */
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.8rem;
+  text-decoration: underline;
+  padding: 0;
+  transition: color 0.15s ease;
+}
+.btn-link-peligro:hover { color: var(--red); }
+/* ↑ Recién en el hover aparece el rojo. Arriba es un link gris más, que es
+   justo lo que se busca: que no parezca el botón principal de la pantalla. */
+.btn-link-peligro:focus-visible { outline: 2px solid var(--accent2); outline-offset: 2px; }
+
+/* El botón destructivo del modal. A diferencia de `.btn`, que es el degradado
+   acento de TODAS las acciones de la app, este es rojo plano y sin glow: es la
+   única acción de la interfaz que destruye algo, y si se ve como el resto la
+   confirmación escrita pierde la mitad de su sentido. */
+.btn-peligro {
+  background: var(--red);
+  color: #fff;
+  border: none;
+  box-shadow: none;
+}
+.btn-peligro:hover:not(:disabled) {
+  filter: brightness(1.08);
+  transform: none;
+  box-shadow: none;
+}
+/* ↑ Sin `transform` ni `box-shadow` en el hover, al revés que `.btn:hover`: el
+   "se levanta al pasar el mouse" es una invitación, y acá no se quiere invitar a
+   nada. El brightness alcanza para confirmar que el botón está activo. */
+.btn-peligro:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* El modal del borrado es angosto a propósito: el de editar el perfil son 720px
+   porque tiene una tabla de skills, y este tiene un input de una frase. A 720px
+   el input queda estirado a lo ancho de la pantalla y el formulario se lee peor. */
+.cuenta-modal { max-width: 460px; }
+.cuenta-modal h3 { margin-bottom: 12px; color: var(--red); }
+.cuenta-modal .cv-actions { justify-content: flex-end; }
+
 /* En pantallas chicas se apila la fila de años/ubicación y se agranda el alto
    de las skills: en un celular de 360px, cuatro columnas de input no entran. */
 @media (max-width: 480px) {
@@ -366,38 +422,41 @@ body {
 .badge-active { background: rgba(34, 197, 94, 0.18); color: var(--green); border: 1px solid rgba(34, 197, 94, 0.4); }
 .badge-inactive { background: rgba(148, 163, 184, 0.15); color: var(--muted); border: 1px solid var(--border); }
 
-/* ----- Consultoras QA (outreach tracker) ----- */
-.region-tab.consultoras-tab { margin-left: auto; }
-/* ↑ La tab "Consultoras" se empuja a la derecha con margin-left auto. */
+/* ----- Etiquetas de "qué se abre cuando apretás Buscar" (Directorio de empleo) -----
+   Antes eran las pills de CATEGORÍA de cada consultora del tracker de outreach
+   (.cat-qa / .cat-it / .cat-multi / .cat-staffing / .cat-fintech / .cat-gov), que se
+   borró en el paso 3 junto con `ConsultorasList.jsx`. Se conservan el nombre de la
+   clase base y TRES de las variantes porque lo que pintan es lo mismo: una chiapa
+   chica con color semántico, al lado de un nombre. Lo que cambia es lo que
+   SIGNIFICAN, y el mapa completo va acá para que no haya que adivinarlo:
 
-/* Pills de categoría de cada consultora: cada una con su color semántico. */
+     .cat-qa    → verde   → "búsqueda filtrada"   (searchKind 'sitio')
+     .cat-multi → ámbar   → "vía Google"          (searchKind 'google')
+     .cat-gov   → violeta → "sin búsqueda filtrada" (searchKind 'ninguno')
+
+   Los nombres de clase no se renombran porque no hay a quién les pueda importar: lo
+   que se lee en el código es `kind.pill`, no `cat-qa`. Lo que no se renombra es el
+   MAPA, y ese es el punto entero de la vista: la etiqueta tiene que decir la verdad
+   sobre el link que se abre, porque un "Buscar" sobre una URL sin filtrar es una
+   promesa que el usuario descubre recién después de cargar la página.
+
+   Las tres variantes que quedaron sin uso (.cat-it, .cat-staffing, .cat-fintech) SE
+   BORRARON: nada las pintaba y eran la razón por la que `--gov-color` quedaba
+   apuntando a un solo consumidor. Reusar la base en vez de inventar tres clases
+   nuevas es lo que evita tener dos vocabularios de colores para el mismo
+   significado. */
 .cat-pill { font-size: 0.68rem; padding: 3px 10px; border-radius: 20px; white-space: nowrap; border: 1px solid transparent; }
 .cat-qa { background: rgba(34, 197, 94, 0.15); color: var(--green); border-color: rgba(34, 197, 94, 0.35); }
-.cat-it { background: rgba(59, 130, 246, 0.15); color: #3b82f6; border-color: rgba(59, 130, 246, 0.35); }
 .cat-multi { background: rgba(245, 158, 11, 0.18); color: #b45309; border-color: rgba(245, 158, 11, 0.4); }
-.cat-staffing { background: rgba(236, 72, 153, 0.15); color: #db2777; border-color: rgba(236, 72, 153, 0.35); }
-.cat-fintech { background: rgba(16, 185, 129, 0.15); color: #10b981; border-color: rgba(16, 185, 129, 0.35); }
 .cat-gov { background: rgba(139, 92, 246, 0.15); color: var(--gov-color); border-color: rgba(139, 92, 246, 0.35); }
-
-.consultora-card .job-top { justify-content: flex-start; gap: 12px; }
-.consultora-logo {
-  /* ↑ Cuadrado blanco que contiene el favicon (logo) de la consultora. */
-  width: 40px; height: 40px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; border-radius: 10px; background: #fff; border: 1px solid var(--border); overflow: hidden;
-}
-.consultora-logo img { width: 100%; height: 100%; object-fit: contain; padding: 4px; }
-.consultora-logo-init {
-  /* ↑ Placeholder circular cuando la consultora no tiene dominio: la inicial. */
-  width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 1.1rem; color: #fff; background: linear-gradient(135deg, #3b82f6, #8b5cf6);
-}
-.consultora-card .cat-pill { margin-left: auto; }
-
-/* Filtro y controles del tracker de contacto. */
-.consultoras-filter { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
-.filter-label { font-size: 0.85rem; color: var(--muted); }
-.consultoras-filter .estado-select { min-width: 250px; }
-.consultora-controls { margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-.estado-select { padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg2); font-size: 0.82rem; color: var(--text); }
-.notas-input { flex: 1; min-width: 180px; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border); font-size: 0.82rem; background: var(--bg2); color: var(--text); }
+/* ↑ Se limpian acá las clases que el tracker de outreach dejó huérfanas y que las
+   reemplaza el Directorio de empleo: `.consultoras-tab`, `.consultoras-filter`,
+   `.filter-label`, `.consultora-controls`, `.estado-select`, `.notas-input`,
+   `.consultora-card`, `.consultora-logo`, `.consultora-logo-init` y las tres
+   variantes `.cat-*` de arriba. Verificado con grep: ninguna la pintaba ningún
+   `.jsx` del repo. Se limpian acá y no en un paso aparte porque el Directorio es
+   exactamente lo que las ocupa: sin esta limpieza, el archivo tendría dos
+   vocabularios de pills y nadie sabría cuál usar. */
 
 /* ----- Lista de ofertas ----- */
 .job-list { display: flex; flex-direction: column; gap: 12px; }
@@ -668,6 +727,88 @@ body {
 .rec-media { border-left-color: var(--yellow); }
 .rec-baja { border-left-color: var(--green); }
 .rec-prio { font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); display: block; margin-bottom: 2px; }
+
+/* ----- Directorio de empleo (paso 9) ----- */
+/* Todo lo que hay abajo REUSA clases que ya existían, y esa es la decisión: la
+   tarjeta es un `.job-card` (misma caja, mismo hover con `translateY`), el botón es
+   un `.btn small secondary`, la etiqueta es un `.cat-pill` y los estados de carga,
+   error y vacío usan el `.empty` de la lista de ofertas. Lo único nuevo son las
+   piezas que el Directorio necesita y la lista de ofertas no tiene: el encabezado,
+   el aviso de "sin keyword", la grilla de entradas y el pie con el dominio. Un
+   bloque propio y no más estilos sobre `.job-card`, para que agregar una vista nueva
+   no siga teniendo que editar las reglas de otra. */
+.directorio-head { margin-bottom: 14px; }
+.directorio-head h2 {
+  /* ↑ Mismo título degradado que `.analysis-head h2`: es la misma jerarquía visual
+     de "página dentro de la columna de ofertas". */
+  font-size: 1.35rem; background: linear-gradient(90deg, var(--accent), var(--accent2)); -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.directorio-lead { color: var(--muted); margin-top: 4px; font-size: 0.9rem; line-height: 1.5; max-width: 62ch; }
+/* ↑ `max-width` en caracteres, no en píxeles: el texto es una explanatory larga, y a
+   lo ancho de la columna los renglones de 150 caracteres no se leen. El número sale
+   del mismo criterio que usan los editores de texto, no de un ancho de pantalla. */
+
+.directorio-aviso {
+  /* ↑ El aviso de "tu perfil no tiene un oficio, las búsquedas salen sin filtrar".
+     Va en ÁMBAR y no en rojo por el mismo motivo que `.cv-error.limite`: no es un
+     error, es una condición previa que se resuelve subiendo el CV. Se usa la variable
+     semántica del tema para que el mismo bloque se lea igual en claro y en oscuro. */
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.45);
+  border-left: 4px solid var(--yellow);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  margin-bottom: 16px;
+  font-size: 0.86rem;
+  line-height: 1.5;
+}
+.directorio-aviso p { margin-bottom: 10px; }
+/* ↑ El botón del aviso va en su propio bloque después del párrafo, así que el
+   `margin-bottom` del `<p>` es lo único que separa los dos. No hace falta una regla
+   para el botón: `.btn.small` ya trae `margin: 0` y el aviso no lo manda a un flex. */
+
+.directorio-terms { color: var(--muted); font-size: 0.8rem; margin-bottom: 4px; overflow-wrap: anywhere; }
+/* ↑ Los términos con los que se prellenaron las URLs. `overflow-wrap: anywhere`
+   porque un término puede ser una frase larga y sin esto rompe la grilla. */
+
+.directorio-section { margin-top: 20px; padding-top: 14px; border-top: 1px solid var(--border); }
+.directorio-section h3 { font-size: 0.82rem; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-bottom: 10px; }
+/* ↑ Separación con borde superior, igual que `.analisis-section`: las dos secciones
+   (bolsas y consultoras) se leen como dos documentos pegados, no como una lista
+   larga de links sin contexto. */
+.directorio-count { color: var(--text); font-weight: 700; }
+
+.directorio-grid {
+  /* ↑ Mismo criterio que `.source-grid`: `auto-fit` + `minmax` deja que el navegador
+     decida cuántas columnas entran según el ancho REAL de la columna, sin una media
+     query. El piso de 260px es un poco más alto que el de `.source-grid` (220px)
+     porque cada tarjeta tiene el nombre, la etiqueta y un botón con su texto: con
+     menos de eso el botón "Abrir el sitio" se parte en dos renglones. */
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px;
+}
+
+.directorio-card { display: flex; flex-direction: column; gap: 8px; }
+/* ↑ Columna con hueco fijo entre los tres bloques (nombre+etiqueta, nota, pie): sin
+   esto, la altura de cada tarjeta depende de si la nota ocupa una línea o dos y la
+   grilla se ve descentrada. `.job-card` ya aporta fondo, borde, radio, sombra y el
+   hover con `translateY`. */
+.directorio-card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.directorio-name { font-size: 0.95rem; line-height: 1.3; overflow-wrap: anywhere; }
+.directorio-note { color: var(--muted); font-size: 0.8rem; line-height: 1.5; flex: 1; }
+.directorio-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; margin-top: auto; }
+.directorio-site { color: var(--muted); font-size: 0.72rem; opacity: 0.85; overflow-wrap: anywhere; min-width: 0; }
+/* ↑ El dominio en `.directorio-foot` con `space-between` y el botón al otro extremo.
+   Es lo que hace que el botón quede siempre en el mismo lugar del ancho de la
+   tarjeta, aunque el dominio sea de tres letras o de treinta. `margin-top: auto`
+   empuja el pie al fondo de la tarjeta, así todos los botones quedan alineados. */
+.directorio-link { flex-shrink: 0; }
+/* ↑ `flex-shrink: 0` para que el texto del botón ("Abrir el sitio" es el más largo)
+   NO se corte cuando el dominio de al lado es largo: sin esto el `flex` del pie
+   achica el botón antes que el texto y "Abrir el sitio" queda en dos renglones.
+   NO se le pone `margin`: `.btn` tiene `margin-right: 8px` porque los botones
+   viven en fila en `.btn-row`, pero `.btn.small` ya lo pisa con `margin: 0`, y el
+   botón del Directorio siempre es `small`. Agregar otro `margin: 0` sería una
+   tercera definición de lo mismo. */
 
 /* Media query: en pantallas angostas la grilla pasa a UNA columna y el CV
    se muestra después de las ofertas (order), para priorizar el contenido. */

@@ -20,13 +20,15 @@
 //
 // Cuando haga falta revocar de verdad, la respuesta NO es agregar una tabla de
 // sesiones (eso obliga a escribir en cada request y rompe el modelo de
-// serverless): es un `session_version integer not null default 0` en `users`, que
-// va DENTRO del token firmado y se incrementa en el logout y en el borrado de
-// cuenta. Los tokens con la versión vieja dejan de verificar. Es un ALTER TABLE y
-// un número más en el payload.
-//
-// El paso 11 (borrar cuenta) va a necesitar las dos cosas: borrar la fila Y
-// revocar cualquier cookie que ande suelta, y por eso está anotado acá.
+// serverless). Y tampoco es el `session_version integer` que este archivo tenía
+// anotado acá como tarea pendiente del paso 11: se llegó a considerar y salió al
+// revés, porque `requireSession` ya consulta `users` en CADA request. Borrar la
+// fila de `users` (o invalidarla de otra forma) deja todos los tokens de esa
+// persona dando 401 sin tocar ningún otro estado. Agregar `session_version`
+// entonces solo agrega una escritura más por login y un segundo lugar donde el
+// estado de la sesión puede quedar desincronizado del de la cuenta. Si algún día
+// hace falta revocar SIN borrar la cuenta, esa es una decisión nueva; el lugar
+// para discutirla es `MEMORIA.md` §5, no este comentario.
 // ============================================================================
 
 import { clearSession } from './lib/auth.js';

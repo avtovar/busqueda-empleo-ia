@@ -17,8 +17,12 @@ import AuthScreen from './components/AuthScreen.jsx';
 //   hacer un redirect a /login porque la app no tiene router, y un condicional que
 //   devuelve el mismo componente siempre resuelve el caso del F5 sobre /login.
 
-import RegionTabs from './components/RegionTabs.jsx';
-// ↑ Pestañas para cambiar de región (países) o de sección (Propuesta de Interés).
+import RegionTabs, { esSeccion } from './components/RegionTabs.jsx';
+// ↑ Pestañas para cambiar de región (países) o de sección (Propuesta de Interés y
+//   Directorio de empleo). `esSeccion` viene del MISMO archivo a propósito: la lista
+//   de pestañas que no son países se declara una sola vez, acá adentro, y este
+//   componente la usa para preguntar "¿estoy en una sección o en una región con
+//   ofertas?" sin volver a escribir `region === 'analisis' || …` en cinco ramas.
 
 import Toolbar from './components/Toolbar.jsx';
 // ↑ Barra de acciones: actualizar búsqueda, historial y buscar en LinkedIn.
@@ -29,11 +33,21 @@ import JobList from './components/JobList.jsx';
 import AnalysisPage from './components/AnalysisPage.jsx';
 // ↑ Página "Propuesta de Interés": gráficos que comparan el mercado vs. el CV.
 
+import DirectorioPage from './components/DirectorioPage.jsx';
+// ↑ Página "Directorio de empleo": catálogo de bolsas y consultoras de Argentina
+//   con la búsqueda ya filtrada por el oficio del usuario. Es una sección más, no
+//   una región: no devuelve ofertas, devuelve links.
+
 import JobDetailModal from './components/JobDetailModal.jsx';
 // ↑ Modal con el detalle de una oferta (skills, descripción, copiar resumen).
 
 import LetterModal from './components/LetterModal.jsx';
 // ↑ Modal que muestra la carta de presentación generada y la deja copiar/descargar.
+
+import DeleteAccountModal from './components/DeleteAccountModal.jsx';
+// ↑ Cuarto modal, y el único que llama a la API por su cuenta: pide una frase
+//   escrita antes de mandar el DELETE y se ocupa del error sin cerrar (el error
+//   de un borrado que NO ocurrió no puede perderse). Ver el componente.
 
 import { linkedinProfileKeywords, timeAgo } from './utils.js';
 // ↑ linkedinProfileKeywords arma la query de la búsqueda de LinkedIn;
@@ -46,7 +60,7 @@ import { regionLabel } from '../../api/lib/regions.js';
 import {
   loadProfile, loadJobs, loadHistory, refreshJobs,
   loadJobDetail, loadCoverLetter, loadAnalytics, searchLinkedInJobs,
-  loadSession, logout,
+  loadSession, logout, loadDirectorio,
 } from './api.js';
 // ↑ Importamos las funciones de la capa de API. Cada una hace un fetch al backend
 //   y, si falla, devuelve datos de respaldo para que la UI nunca quede vacía. Las
@@ -188,6 +202,13 @@ export default function App() {
   //   el perfil ya existe: corregir un peso de skill no debería obligar a subir
   //   el CV otra vez y gastar otro análisis de la cuota del LLM.
 
+  const [borrandoCuenta, setBorrandoCuenta] = useState(false);
+  // ↑ Si el modal de confirmación del borrado está abierto. Vive acá y no dentro
+  //   del modal, por la misma razón que `editando`: el modal se monta y se
+  //   desmonta, así que su estado interno se pierde en cada cierre. Si el "¿estás
+  //   seguro?" viviera adentro, abrir y cerrar el modal borraría la frase escrita
+  //   —que es justo lo que alguien que se arrepiente quiere conservar—.
+
   const [region, setRegion] = useState('argentina');
   // ↑ Región seleccionada. Arranca en Argentina y cambia al hacer click en las tabs.
 
@@ -208,6 +229,20 @@ export default function App() {
   const [analytics, setAnalytics] = useState(null);
   // ↑ Datos agregados del mercado para la página "Propuesta de Interés" (KPIs, barras, brechas).
 
+  const [directorio, setDirectorio] = useState(null);
+  // ↑ Catálogo de bolsas y consultoras de la página "Directorio de empleo".
+  //   `null` = todavía no se pidió (o el backend no respondió: `loadDirectorio()`
+  //   devuelve null y no lanza). NO se inicializa con un catálogo vacío: la
+  //   diferencia entre "no llegó" y "no hay" la hace `directorioCargado`.
+
+  const [directorioCargado, setDirectorioCargado] = useState(false);
+  // ↑ ¿Ya se pidió el directorio en esta sesión? Existe para no pegarle al
+  //   endpoint cada vez que se entra y sale de la pestaña: el catálogo NO depende de
+  //   la región que se está viendo ni de la vista live/historial, así que volver a
+  //   pedirlo devolvería exactamente lo mismo. Se reinicia en dos momentos que sí lo
+  //   cambian: al guardar el perfil (cambia el keyword con el que se prellenan las
+  //   URLs) y al limpiar la sesión.
+
   const [loading, setLoading] = useState(true);
   // ↑ Bandera que indica si se está cargando. Sirve para mostrar "Cargando…" en la toolbar.
 
@@ -221,10 +256,9 @@ export default function App() {
   //   mezclara con los metadatos el error viejo aparecería junto a los datos
   //   nuevos de la corrida que sí funcionó.
 
-  const [apifyLimit, setApifyLimit] = useState(200);
-  // ↑ Cuántas ofertas pedirle a Apify. 200 es el default del backend
-  //   (APIFY_MAX_RESULTS), no un número inventado acá: el control de la
-  //   toolbar manda este valor en el POST, así que lo que se ve es lo que corre.
+  const [apifyLimit, setApifyLimit] = useState(() => Number(localStorage.getItem('apifyLimit') || 200));
+  // ↑ Persiste en localStorage para que el usuario no tenga que reponerlo
+  //   cada sesión. El default 200 coincide con APIFY_MAX_RESULTS del backend.
 
   const [refreshNote, setRefreshNote] = useState('');
   // ↑ Aviso del botón "Actualizar búsqueda". Existe porque ese botón NO llama a
@@ -296,10 +330,17 @@ export default function App() {
   //   años son los mismos que va a leer el próximo `GET /api/profile`, y el resto
   //   de la app (el panel, las ofertas, la analítica) matchea contra lo que está
   //   en la base y no contra lo que el usuario escribió.
-  const handleProfileSaved = useCallback((guardado) => {
+const handleProfileSaved = useCallback((guardado) => {
     setProfile(guardado);
     setSesion((actual) => ({ ...actual, profileComplete: true }));
     setEditando(false);
+    setDirectorioCargado(false);
+    // ↑ El directorio se invalida SOLO acá y no en cada cambio de perfil: es el único
+    //   momento en que puede cambiar el keyword con el que el backend prellena las
+    //   URLs de las bolsas. Sin esto, un usuario que sube su CV y después lo corrige
+    //   vería las URLs construidas con el keyword viejo, y el aviso de "tu perfil no
+    //   tiene oficio" le diría lo contrario de lo que su perfil dice. Los datos
+    //   siguen cacheados: la próxima entrada a la pestaña los vuelve a pedir.
     // ↑ El `profileComplete` se actualiza acá porque **sí** se usa para rutear: la
     //   compuerta del alta se abre con `sesion.profileComplete === false` (§4.6 de
     //   MEMORIA.md), así que sin esta línea, guardar el perfil cerraría el modal
@@ -313,6 +354,10 @@ export default function App() {
   // "memoriza": solo se recrea si cambia viewMode, evitando renders innecesarios.
   const goToRegion = useCallback(async (nextRegion) => {
     setRegion(nextRegion);
+    setLinkedInSearchError('');
+    // ↑ Limpiamos el error de búsqueda de LinkedIn al cambiar de región:
+    //   el error pertenece a la corrida anterior y no debe mostrarse junto
+    //   a los datos de la nueva región.
     // ↑ Actualizamos la región elegida en el estado para que la tab quede "activa".
 
     if (nextRegion === 'analisis') {
@@ -322,6 +367,31 @@ export default function App() {
       setLoading(false);
       return;
     }
+
+    if (nextRegion === 'directorio') {
+      // ↑ El Directorio va ANTES de la rama de las regiones y hace un `return`
+      //   temprano, a propósito. `/api/directorio` NO devuelve ofertas, así que si
+      //   cayera en el camino de abajo haría `loadJobs('directorio')`: el backend
+      //   normalizaría esa clave inexistente a la región por defecto (nunca 400) y
+      //   se mostraría la lista de ofertas de Argentina al lado de un catálogo de
+      //   links. Es el mismo error de "el 400 del query param es un problema del
+      //   cliente" que aparece en AGENTS.md, del revés: acá el problema es no
+      //   preguntar antes de pegarle a un endpoint.
+      // ↓ Y NO llama a `loadHistory` por el mismo motivo: el historial son las
+      //   ofertas que el usuario vio, no tiene nada que ver con un catálogo.
+      if (directorioCargado) return;
+      // ↑ Ya se pidió en esta sesión: no se vuelve a pegarle al endpoint. Es un
+      //   catálogo, no una búsqueda: la respuesta no cambia con el tiempo.
+      setLoading(true);
+      setDirectorio(await loadDirectorio());
+      setDirectorioCargado(true);
+      // ↑ Se marca incluso si volvió `null`: `loadDirectorio` no lanza, así que la
+      //   única forma de "volver a intentar" es entrar y salir de la pestaña, y
+      //   ponerlo acá evita un bucle infinito de requests si algún día cambia.
+      setLoading(false);
+      return;
+    }
+
     // Cualquier otra tab es un país: buscamos las ofertas según la vista activa
     // (live = resultados frescos, history = historial guardado).
     setLoading(true);
@@ -345,7 +415,11 @@ export default function App() {
       setJobsData(viewMode === 'history' ? await loadHistory(nextRegion) : await loadJobs(nextRegion));
     }
     setLoading(false);
-  }, [viewMode, linkedinMeta]);
+  }, [viewMode, linkedinMeta, directorioCargado]);
+  // ↑ `directorioCargado` entra en las dependencias por el mismo motivo que las otras
+  //   dos: el callback lee esa bandera para NO volver a pedir el catálogo, así que si
+  //   no fuera una dependencia, `goToRegion` cerraría sobre el `false` de siempre y
+  //   cada visita a la pestaña pegaría un request de más.
 
   // Callback que recibe el % de match mínimo elegido en la toolbar. Es la
   // SEGUNDA capa de validación: el Toolbar ya no deja pasar valores fuera de
@@ -365,9 +439,40 @@ export default function App() {
   // ↑ useCallback con dependencias vacías: la función no cambia nunca, así que
   //   Toolbar no se re-renderiza de más por culpa de este callback.
 
+  // Callback para el límite de Apify: valida, acota y persiste en localStorage.
+  const handleApifyLimitChange = useCallback((value) => {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return;
+    // ↑ Si no es un número (NaN, texto vacío) se ignora.
+    const clamped = Math.min(1000, Math.max(20, Math.round(parsed)));
+    // ↑ Acota entre 20 y 1000 (el backend también valida, pero acá evitamos
+    //   mandar valores imposibles).
+    setApifyLimit(clamped);
+    localStorage.setItem('apifyLimit', String(clamped));
+    // ↑ Persiste para que sobreviva al F5 y a nuevas sesiones.
+  }, []);
+  // ↑ useCallback con dependencias vacías: la función no cambia nunca.
+
   // Acción del botón "Actualizar búsqueda": fuerza al backend a re-consultar las fuentes
   // (ignorando la caché de 30 min) y recarga la región actual.
   async function handleRefresh() {
+    // El Directorio tiene su propia rama, y va PRIMERO: ni siquiera llega al
+    // `POST /api/refresh`, que existe para saltear el TTL de la caché de OFERTAS
+    // (ver AGENTS.md). Llamarlo desde acá sería pedirle al backend una corrida
+    // contra las cinco bolsas gratuitas para, después, no usar ni una de esas
+    // ofertas: trabajo de red que se paga con tiempo del usuario y no cambia lo que
+    // ve. "Actualizar" en esta vista significa volver a pedir el catálogo, que es lo
+    // único que esta pantalla puede tener fresco.
+    if (region === 'directorio') {
+      setRefreshing(true);
+      setDirectorio(await loadDirectorio());
+      setDirectorioCargado(true);
+      setRefreshing(false);
+      // ↑ Se vuelve a marcar como cargado porque ya lo está: lo que se reintenta es el
+      //   request, no el flag.
+      return;
+    }
+
     setRefreshing(true);
     const result = await refreshJobs();
     // ↑ refreshJobs() ahora devuelve { ok }. Antes era fire-and-forget: si el
@@ -404,7 +509,7 @@ export default function App() {
 
   async function handleLinkedInSearch() {
     setSearchingLinkedIn(true);
-    setLinkedinSearchError('');
+    setLinkedInSearchError('');
     setRefreshNote('');
     // ↑ Se borra la nota del refresh anterior: con la corrida nueva queda
     //   obsoleto un mensaje que decía "esto no lo toqué".
@@ -446,7 +551,7 @@ export default function App() {
       });
       setViewMode('live');
     } catch (error) {
-      setLinkedinSearchError(error.message || 'No se pudo buscar en LinkedIn.');
+      setLinkedInSearchError(error.message || 'No se pudo buscar en LinkedIn.');
     } finally {
       setSearchingLinkedIn(false);
     }
@@ -459,8 +564,15 @@ export default function App() {
   async function handleToggleHistory() {
     const next = viewMode === 'history' ? 'live' : 'history';
     setViewMode(next);
-    if (region === 'analisis') return;
-    // ↑ En Propuesta de Interés solo cambia la vista global; su contenido no depende del historial.
+    if (esSeccion(region)) return;
+    // ↑ Todas las secciones, no solo la de análisis: en Propuesta de Interés y en el
+    //   Directorio solo cambia la vista global, porque su contenido no depende del
+    //   historial. Sin esta línea, tocar "Desde enero 2026" desde el Directorio haría
+    //   `loadHistory('directorio')` — un endpoint de ofertas con una clave de región
+    //   que no existe — y debajo quedaría una lista vacía al lado del catálogo. Es el
+    //   mismo modo de falla que el de `goToRegion`: no preguntar antes de pegarle a un
+    //   endpoint. El botón está oculto en las secciones (`Toolbar` usa este mismo
+    //   `esSeccion`), así que hoy la rama es una barrera, no un arreglo visible.
     setLoading(true);
     if (next === 'history') {
       setJobsData(await loadHistory(region));
@@ -574,6 +686,19 @@ export default function App() {
     if (region === 'analisis') {
       return loading ? 'Calculando la propuesta de interés…' : 'Mercado relevado en todas las regiones, comparado contra tu CV.';
     }
+    if (region === 'directorio') {
+      // ↑ Mismo criterio que la línea de arriba, y por el mismo motivo: el return va
+      //   ANTES del `if (loading)` y antes de todo lo que habla de ofertas. Lo que
+      //   sigue cuenta ofertas, mira `_online` y cuenta las que aprobaron el filtro de
+      //   % de match: nada de eso es cierto en un catálogo de links, y el texto de
+      //   abajo llegaría a decir "Conexión exitosa con las fuentes de empleo" al lado
+      //   de una lista que no tiene ninguna oferta. Es el mismo criterio que `_online`
+      //   en `jobs.js:612`: el rótulo describe lo que LA PANTALLA muestra, no lo que
+      //   pasó en la corrida anterior.
+      return loading
+        ? 'Armando el directorio de empleo…'
+        : 'Catálogo de bolsas y consultoras de Argentina. No rastreamos estas webs: cada link se abre en el sitio, con la búsqueda ya filtrada cuando el portal la soporta.';
+    }
     if (loading) return 'Cargando…';
     if (searchingLinkedIn) return `Consultando LinkedIn con Apify (desde ${apifyLimit} ofertas; puede devolver más)…`;
       // ↑ El "máximo 50" de antes era mentira: el backend pagina hasta 8 páginas.
@@ -672,6 +797,51 @@ export default function App() {
   // ↑ `useCallback` con deps vacías. No hay Circular: este callback solo llama
   //   setters de estado.
 
+  // Vaciar TODO lo que es de la sesión actual, y poner el estado en `sin-sesion`.
+  //
+  // Es una función y no un bloque repetido porque hay DOS callers que necesitan
+  // exactamente lo mismo y ya se vio lo que cuesta: `handleLogout` y
+  // `handleAccountDeleted` limpian exactamente la misma lista, y lo que se borró
+  // entre una versión y otra de este archivo fue el `profile` de una de las dos.
+  // La lista corta, y el motivo de vaciarla una por una (y no con un "reset" de
+  // la app) es que las formas importan: `jobsData` con `_online: false` es lo
+  // que hace que la app muestre el aviso de "modo demo" si alguien fuerza la
+  // vista, y `analytics: null` es lo que la pestaña de análisis interpreta como
+  // "no cargado". Un estado con la forma equivocada rompe el render en silencio.
+  // Y lo mismo vale para el directorio: `directorio: null` con
+  // `directorioCargado: false` es lo que hace que la pestaña vuelva a pedir el
+  // catálogo con el keyword del perfil que entre ahora, y no con el del anterior.
+  const limpiarSesion = useCallback(() => {
+    setSesion({ estado: 'sin-sesion' });
+    // ↑ `'sin-sesion'` y NO `'sin-respuesta'`: acá SÍ sabemos que no hay sesión,
+    //   y no es una conjetura. En el logout pasa lo mismo (el backend confirmó), y
+    //   en el borrado de cuenta es todavía más claro: la fila de `users` ya no
+    //   existe, así que cualquier cookie que ande suelta da 401 en el próximo
+    //   request. Los tres estados siguen siendo tres: `'desconocido'` (el
+    //   `/api/me` todavía no respondió) y `'sin-respuesta'` (no hubo backend) NO
+    //   abren la pantalla de acceso a propósito, para no mandar a un login
+    //   imposible a alguien a quien lo que le falta es que el server vuelva.
+    setProfile(null);
+    setAnalytics(null);
+    setDirectorio(null);
+    setDirectorioCargado(false);
+    // ↑ El directorio NO es un dato privado: el catálogo de bolsas y consultoras es el
+    //   mismo para cualquiera y solo cambia con el keyword del PERFIL. Se limpia igual,
+    //   y por una razón concreta: el keyword con el que se prellenan las URLs ES del
+    //   usuario que se está yendo. Dejarlo cacheado haría que la próxima sesión viera
+    //   un catálogo armado con el oficio de la anterior, con su perfil sin keyword y
+    //   un aviso de "sin búsqueda filtrada" sin explicación. `limpiarSesion` es la
+    //   lista de TODO lo que pertenece a la sesión saliente, no solo lo privado.
+    setEditando(false);
+    setBorrandoCuenta(false);
+    setJobsData({ jobs: [], _online: false });
+    setSearchingLinkedIn(false);
+    setLinkedinMeta(null);
+    setLinkedInSearchError('');
+    // ↑ Limpia el estado de la búsqueda de Apify: la sesión que se va tenía
+    //   sus propias corridas y metadatos; la siguiente sesión empieza limpia.
+  }, []);
+
   // Cerrar sesión. El logout del backend NO borra nada del servidor (no hay tabla
   // de sesiones: manda la cookie con Max-Age=0), y por eso acá hay que limpiar
   // el estado local sí o sí.
@@ -683,26 +853,32 @@ export default function App() {
     //   porque la alternativa (dejar al usuario en la app con un botón que no
     //   hace nada) es peor que un logout optimista que se corrige en el próximo
     //   `GET /api/me`, que devuelve 401 y vuelve a pintar el acceso.
+    limpiarSesion();
+  }, [limpiarSesion]);
 
-    setSesion({ estado: 'sin-sesion' });
-    setProfile(null);
-    setAnalytics(null);
-    setEditando(false);
-    setJobsData({ jobs: [], _online: false });
-    // ↑ Se vacían los datos de usuario uno por uno y no con un `reset` de la app.
-    //   Motivo: `jobsData` con `_online: false` es lo que hace que la app muestre
-    //   el aviso de "modo demo" si alguien fuerza la vista, y `analytics: null` es
-    //   lo que la pestaña de análisis interpreta como "no cargado". Un estado con
-    //   la forma equivocada rompe el render en silencio.
-  }, []);
+  // Se llamó al DELETE y el backend respondió 200: la cuenta ya no existe. No hay
+  // NADA que pedirle al servidor después (no hay logout, la cookie ya vino con
+  // `Max-Age=0` en la misma respuesta), así que este handler es solo el limpieza.
+  //
+  // Es exactamente lo mismo que un logout, y por eso comparte `limpiarSesion` en
+  // vez de reescribir las cinco líneas: la diferencia entre las dos acciones es
+  // lo que pasa en el servidor, y después de eso la UI está en el mismo lugar.
+  const handleAccountDeleted = useCallback(() => {
+    limpiarSesion();
+  }, [limpiarSesion]);
 
-  // Abrir y cerrar el editor de perfil. Van en `useCallback` porque son las props
-  // de un componente que se suscribe a `keydown` en `document`: si la función
-  // cambiara de identidad en cada render, el listener se desuscribiria y se
+  // Abrir y cerrar los modales de perfil. Van en `useCallback` porque son props
+  // de componentes que se suscriben a `keydown` en `document`: si la función
+  // cambiara de identidad en cada render, el listener se desuscribiría y se
   // volvería a suscribir en cada cambio de estado de la app, por abrir un modal
   // que casi no escucha nada.
   const abrirEditor = useCallback(() => setEditando(true), []);
   const cerrarEditor = useCallback(() => setEditando(false), []);
+  const abrirBorrado = useCallback(() => setBorrandoCuenta(true), []);
+  const cerrarBorrado = useCallback(() => setBorrandoCuenta(false), []);
+  // ↑ `abrirBorrado`/`cerrarBorrado` son `useCallback` por lo mismo que
+  //   `abrirEditor`/`cerrarEditor`: son props de `CvPanel` y del modal, y con una
+  //   arrow function en el JSX se recrearían en cada render.
 
   return (
     <div className="app">
@@ -768,17 +944,26 @@ export default function App() {
               compuerta del alta, y ocupa la pantalla entera porque un perfil
               ausente matchea con 0% contra TODAS las ofertas: dejarla ver la lista
               sería mostrarle "no encontramos nada" en vez de "subí tu CV". */}
-          <CvOnboarding onSaved={handleProfileSaved} />
+          <CvOnboarding onSaved={handleProfileSaved} onDeleteAccount={abrirBorrado} />
+          {/* ↑ `onDeleteAccount` va ACÁ también, y no es redundante: esta pantalla
+              es la única que ve alguien que se registró pero nunca subió el CV, y
+              `DELETE /api/account` acepta justo ese caso (usa `requireSession`).
+              Sin esta prop, esa cuenta se podría crear pero no borrar desde la
+              interfaz. El EDITOR de perfil (el mismo componente con `profile`) no
+              la lleva a propósito: atrás está el panel del CV con su zona. */}
         </main>
       ) : (
       <main className="layout">
         {/* ↑ Layout de dos columnas: a la izquierda el CV y a la derecha las ofertas. */}
 
-        <CvPanel profile={profile} onEdit={abrirEditor} />
+        <CvPanel profile={profile} onEdit={abrirEditor} onDeleteAccount={abrirBorrado} />
         {/* ↑ Le pasamos el perfil por prop; CvPanel lo muestra en el panel lateral.
             El `onEdit` es opcional: sin él el panel no muestra el botón, y con él
             abre el MISMO formulario del onboarding en modo modal. Corregir un peso
-            de skill no debería pasar por un parseo del LLM que se paga. */}
+            de skill no debería pasar por un parseo del LLM que se paga.
+            `onDeleteAccount` es opcional por el mismo motivo y abre el modal de
+            confirmación del borrado, que es un cuarto modal más y vive acá para que
+            `limpiarSesion` tenga un solo lugar desde donde ejecutarse. */}
 
         <section className="jobs-panel">
           <RegionTabs current={region} onSelect={goToRegion} />
@@ -797,9 +982,10 @@ export default function App() {
             minScore={minScore}
             onMinScoreChange={handleMinScoreChange}
             apifyLimit={apifyLimit}
-            onApifyLimitChange={setApifyLimit}
+            onApifyLimitChange={handleApifyLimitChange}
             // ↑ El select de cuántas ofertas pedir: el estado vive en App porque
             //   es App la que hace el POST. La toolbar solo avisa el valor nuevo.
+            //   El callback valida, acota y persiste en localStorage.
             effectiveLimit={linkedinReport.effectiveLimit}
             // ↑ El límite REAL de la última corrida (`resultLimit` del backend),
             //   que puede diferir del elegido si el backend lo acota.
@@ -828,6 +1014,24 @@ export default function App() {
             />
             // ↑ Propuesta de Interés: recibe los datos de analítica, el perfil y los
             //   controles de búsqueda (actualizar / desde enero / LinkedIn).
+          ) : region === 'directorio' ? (
+            <DirectorioPage
+              data={directorio}
+              loading={loading}
+              error=""
+              onEditCv={abrirEditor}
+            />
+            // ↑ El Directorio es la TERCERA rama, y va antes del `JobList` por la
+            //   misma razón que la de análisis: la columna derecha muestra UNA cosa y
+            //   esta no es una lista de ofertas. Por eso NO lleva `viewMode` ni
+            //   `onRefresh`: la toolbar esconde los controles de ofertas en las
+            //   secciones, y la vista tiene su propio estado (`loading`) para poder
+            //   decir "cargando" en vez de "no hay entradas".
+            //   `error=""` explícito porque `loadDirectorio()` no lanza nunca (devuelve
+            //   `null`); la prop existe para que el componente no quede atado a esta
+            //   única fuente de datos. `onEditCv` es el MISMO `abrirEditor` del panel
+            //   del CV: el aviso de "tu perfil no tiene oficio" abre el editor, que es
+            //   donde se actualiza el perfil, y no un segundo formulario de CV.
           ) : (
             <JobList key={`${region}-${viewMode}`} jobs={visibleJobs} viewMode={viewMode} minScore={minScore} onOpen={openDetail} />
             // ↑ Ofertas de la región YA filtradas por % de match (visibleJobs): el
@@ -874,6 +1078,23 @@ export default function App() {
 
       {letter && <LetterModal letter={letter} onClose={() => setLetter(null)} />}
       {/* ↑ Igual que el anterior: solo renderiza la carta si ya fue generada. */}
+
+      {borrandoCuenta && (
+        <DeleteAccountModal
+          onCancel={cerrarBorrado}
+          onDeleted={handleAccountDeleted}
+        />
+        // ↑ Se dibuja SOLO con sesión y perfil (`borrandoCuenta` arranca en false
+        //   y nadie más lo pone en true), pero el condicional explícito es lo que
+        //   lo mantiene así: si alguien lo abriera en un estado sin sesión, el
+        //   `DELETE` recibiría un 401 y el modal mostraría "Necesitás iniciar
+        //   sesión.", que es un mensaje honesto pero una pantalla inútil.
+        //
+        //   `onDeleted` se llama SOLO cuando el backend confirmó. Es la diferencia
+        //   con `onCancel`: acá ya no se puede volver atrás, y por eso el handler
+        //   no hace ninguna llamada de red (la cookie ya vino borrada en la misma
+        //   respuesta) y solo limpia el estado local.
+      )}
     </div>
   );
 }

@@ -185,6 +185,31 @@ export async function loadAnalytics() {
   return null;
 }
 
+// Trae el catálogo de bolsas de empleo y consultoras de una región
+// (/api/directorio?region=X): el directorio de Argentina, sin scraping.
+export async function loadDirectorio(region = 'argentina') {
+  // ↑ Sin `AbortSignal.timeout` por la misma razón que `loadHistory` y
+  //   `loadAnalytics`: son LECTURAS y tienen default, así que si el backend se cuelga
+  //   lo peor que pasa es que la vista quede esperando; el resto de la app (las
+  //   ofertas, que es lo que el usuario vino a buscar) sigue funcionando y el
+  //   usuario puede cambiar de pestaña. Un timeout propio solo agregaría un texto
+  //   más para el mismo problema.
+  // ↑ El default es la ÚNICA región del proyecto, así que el llamador puede no
+  //   pasar nada. Cuando se agreguen más países, el parámetro pasa a ser obligatorio
+  //   y este default se saca: acá es cómodo, no un atajo para no pasar `region`.
+  try {
+    const res = await fetch(`/api/directorio?region=${region}`);
+    if (res.ok) return await res.json();
+  } catch {}
+  return null;
+  // ↑ null Y NO un catálogo vacío, y esa diferencia es el punto: la respuesta del
+  //   endpoint ya trae `searchKind` por entrada y el componente decide el rótulo a
+  //   partir de eso. Devolver `{ bolsas: [], consultoras: [] }` al fallar haría que
+  //   una caída del backend se viera como "no hay bolsas cargadas", que es un dato
+  //   falso, y con `keyword: ''` además dispararía el aviso de "tu perfil no tiene
+  //   oficio". `null` hace que la página diga que no se pudo cargar.
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // EL ALTA EN DOS ETAPAS, VISTA DESDE EL NAVEGADOR
 // ---------------------------------------------------------------------------
@@ -215,6 +240,14 @@ const PARSE_TIMEOUT_MS = 75_000;
 // El techo de `saveProfile`. Más corto porque acá no hay nadie pensando: es un
 // `PUT` a la base. 30 s es muchísimo para una transacción.
 const SAVE_TIMEOUT_MS = 30_000;
+
+// El techo de `deleteAccount`. El mismo número y por el mismo motivo: es un
+// `DELETE` contra la base con la cascada, o sea dos sentencias de la misma
+// transacción (ver `api/account.js`). Si los 30 s se cumplen, la transacción o
+// commiteó o no, y el usuario puede reintentar sin riesgo: el `DELETE` es
+// idempotente y la única forma de duplicar el registro de baja es tener DOS
+// requests vivos a la vez, que es justo lo que el timeout descarta.
+const DELETE_TIMEOUT_MS = 30_000;
 
 /**
  * La `signal` de un `fetch` que se corta solo pasado un rato.
@@ -573,4 +606,65 @@ export async function logout() {
   } catch {
     return false;
   }
+}
+
+/**
+ * Borra la cuenta (`DELETE /api/account`).
+ *
+ * Es la ÚNICA función de la capa de red que se parece a `logout` y aun así LANZA
+ * cuando el backend no responde. La diferencia no es un detalle de implementación
+ * sino el motivo por el que existen dos funciones y no una con un parámetro:
+ *
+ *   · `logout()` NO tira y devuelve `false`. Cerrar sesión no borra nada del
+ *     servidor: manda la cookie con `Max-Age=0`. Si el server estaba caído, la
+ *     cookie sigue viva, la UI tiene que volver al login igual, y el próximo
+ *     `GET /api/me` corrige el estado con un 401. Un logout optimista es lo
+ *     correcto ahí.
+ *   · `deleteAccount()` TIENE que tirar. El borrado sí destruye datos, y la
+ *     diferencia entre "se borró" y "no se borró" es la diferencia entre una app
+ *     que respeta lo que le pidieron y una que le dice a alguien que su perfil se fue
+ *     cuando sigue entero en la base. Por eso no hay ni un `catch` que se trague
+ *     la respuesta: el componente tiene que poder mostrar el error y dejar el
+ *     modal abierto.
+ *
+ * El mensaje de error se muestra TAL CUAL lo escribió `http.js`, por la misma
+ * regla de `parseCv` y `saveProfile`: el backend es el que dice el motivo y el
+ * próximo paso, y el cliente solo le AGREGA `status` y `retryAfter` (datos, no
+ * texto). Acá el caso real es el 401: si la sesión ya se había caído, el backend
+ * contesta "Necesitás iniciar sesión." y tiene que ser eso lo que se lea, no un
+ * "no se pudo borrar la cuenta" genérico que haría pensar que el backend está
+ * caído cuando lo que pasó es que la cookie venció.
+ *
+ * @returns {Promise<{ok: true}>} La respuesta del backend.
+ * @throws {Error} Con `status` 401, 0, 504 o 500. El mensaje es el del backend.
+ */
+export async function deleteAccount() {
+  let response;
+  try {
+    response = await fetch('/api/account', {
+      method: 'DELETE',
+      signal: timeoutSignal(DELETE_TIMEOUT_MS),
+      // ↑ Sin body, y sin headers: el endpoint no lee ninguno de los dos y el
+      //   `user_id` sale de la cookie que el navegador manda solo. Mandar un
+      //   `Content-Type` acá sería mentir sobre un body que no existe.
+    });
+  } catch {
+    // No hubo respuesta: se cortó la red, no hay backend, o vencieron los 30 s.
+    throw apiError(0, null, 'No se pudo conectar con el backend. ¿Está corriendo el server?');
+    // ↑ El timeout cae en ESTE catch y no tiene mensaje propio (a diferencia de
+    //   `parseCv` y `saveProfile`, que distinguen 504 de "no hubo conexión").
+    //   Es a propósito: acá las dos cosas son lo mismo para el usuario —no se
+    //   borró nada y hay que reintentar— y un 504 "el borrado tardó demasiado"
+    //   sugeriría que el servidor está lento, cuando lo que se cortó fue nuestra
+    //   espera. Un 504 solo se mandaría si el backend lo decide.
+  }
+
+  const data = await response.json().catch(() => ({}));
+  // ↑ `.catch(() => ({}))` y no dejar que un body no-JSON reviente: un 502 del
+  //   proxy de Vercel suele venir en HTML, y sin esto el error que vería el
+  //   usuario sería "Unexpected token <" en vez del mensaje del backend.
+  if (!response.ok) {
+    throw apiError(response.status, data, 'No se pudo borrar la cuenta.');
+  }
+  return data;
 }

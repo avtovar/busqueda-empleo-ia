@@ -1,12 +1,19 @@
 // Componente de presentación: muestra el perfil del usuario en el panel lateral.
 // Recibe el perfil por props (lo manda App) y lo "pinta" sin guardar estado propio.
-export default function CvPanel({ profile, onEdit }) {
+
+import BorrarCuentaZona from './BorrarCuentaZona.jsx';
+// ↑ La zona de peligro del paso 11. Se importa (y no se escribe el markup acá)
+//   porque el mismo aviso aparece también en la compuerta del alta: son las dos
+//   pantallas donde un usuario con sesión puede estar, y las dos necesitan poder
+//   borrar la cuenta.
+
+export default function CvPanel({ profile, onEdit, onDeleteAccount }) {
   // ↑ Desestructuración de props: sacamos `profile` directamente en la firma,
   //   como si fuera un parámetro normal de la función.
-  //   `onEdit` es OPCIONAL a propósito: el panel no depende del formulario, solo
-  //   avisa que lo hay. Así el botón "Editar perfil" aparece si y solo si el
-  //   padre sabe abrir el editor, y este componente no importaría el formulario
-  //   para una función que no usa.
+  //   `onEdit` y `onDeleteAccount` son OPCIONALES a propósito: el panel no depende
+  //   del formulario ni del modal, solo avisa que los hay. Así los botones aparecen
+  //   si y solo si el padre sabe abrirlos, y este componente no importaría ni el
+  //   formulario ni la confirmación para dos funciones que no usa.
 
   if (!profile) return null;
   // ↑ Guardia temprana: si el perfil todavía no cargó (null), no renderizamos nada.
@@ -90,6 +97,13 @@ export default function CvPanel({ profile, onEdit }) {
         //   contra un límite por hora, así que corregir un peso de skill no puede
         //   pasar por ahí.
       )}
+
+      {onDeleteAccount && <BorrarCuentaZona onDeleteAccount={onDeleteAccount} />}
+      {/* ↑ La zona de peligro va AL FINAL del panel, después de "Editar perfil", y
+          no junto al "Salir" del header. El texto y el botón viven en
+          `BorrarCuentaZona` y no acá: los mismos cinco renglones aparecen también
+          en la compuerta del alta, y dos copias del mismo aviso divergen sin que
+          nada falle. La razón completa de la posición está en ese componente. */}
     </aside>
   );
 }

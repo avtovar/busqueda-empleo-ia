@@ -96,7 +96,7 @@ npm run build                                  # 2. que el JSX compila (detecta 
 # 3. que las funciones responden. /api/health NO toca la DB ni Apify: es el smoke test.
 curl -fsS localhost:3000/api/health
 curl -fsS localhost:3000/api/jobs               # 401 sin cookie; 403 con cookie y sin CV
-curl -fsS localhost:3000/api/directorio         # NO EXISTE TODAVÍA: es el paso 9
+curl -fsS localhost:3000/api/directorio         # 401 sin cookie; 403 con cookie y sin CV
 ```
 
 **Los 6 endpoints de ofertas exigen las dos compuertas, así que probarlos a mano sin
@@ -106,8 +106,8 @@ falso que mande `Set-Cookie` (es lo que hacen las baterías de §4.8 de `MEMORIA
 ofertas**: es el smoke test, y además el registro y el login son públicos. O sea, lo que
 se puede probar sin sesión es `/api/health`, `/api/register` y `/api/login`; todo lo demás
 pide cookie, y lo que devuelve oferta además pide perfil.
-`/api/directorio` todavía **no está escrito** (es el paso 9 del plan), y
-`/api/linkedin-search` tampoco: ver abajo, se factura.
+`/api/directorio` **existe** (es el paso 9: directorio de Argentina, sin scraping), y
+`/api/linkedin-search` todavía **no**: ver abajo, se factura.
 
 `npm run check` **no ejecuta código**: solo parsea. Es seguro correrlo contra archivos que
 importan variables de entorno o abren conexiones.
@@ -532,15 +532,25 @@ Dos cosas sueltas que no se deducen del código:
   lo que usa el smoke test. Si le agregás un `SELECT 1`, el deploy deja de poder
   diagnosticar un problema de DB.
 - Borrar cuenta = **un** `delete from users where id = $1`. **NO son N `DELETE` explícitos**:
-  las **seis** FK a `users` llevan **`on delete cascade`** (en `profiles` esa FK además es la
+  las **siete** FK a `users` llevan **`on delete cascade`** (en `profiles` esa FK además es la
   primary key de la tabla), así que un solo `DELETE` se lleva `profiles`, `skills`, `searches`,
-  `job_history`, `favorites` y `apify_usage`. La línea vieja de este archivo ("sin cascada, son
-  N `DELETE` explícitos") era anterior a las migraciones y quedó **revertida**: el porqué
-  completo, y **las dos limitaciones que la cascada NO arregla** (no protege borrar mal *una*
-  cuenta, y no deja rastro de la baja), están en `MEMORIA.md` §4.1, decisión 9. Lo que sí sale
-  de ahí: **logueá la baja en el endpoint ANTES del `delete`**, porque la fila desaparece y la
-  base no guarda ningún registro del evento. (La séptima FK, `cv_parses` de la migración `010`,
-  también es cascade.)
+  `job_history`, `favorites`, `apify_usage` y `cv_parses`. La línea vieja de este archivo
+  ("sin cascada, son N `DELETE` explícitos") era anterior a las migraciones y quedó
+  **revertida**: el porqué completo, y **las dos limitaciones que la cascada NO arregla** (no
+  protege borrar mal *una* cuenta, y no deja rastro de la baja), están en `MEMORIA.md` §4.1,
+  decisión 9. Lo que sí sale de ahí: **logueá la baja en el endpoint ANTES del `delete`**, porque
+  la fila desaparece y la base no guarda ningún registro del evento.
+- **El registro de la baja NO lleva FK a `users`** (migración `012`, tabla
+  `account_deletions`). Es el punto de todo el paso 11: con una FK, el `delete` borraría el
+  rastro en la misma cascada y la tabla quedaría siempre vacía. Por eso la única forma de
+  escribirla es un `INSERT` explícito, y va **en la misma transacción** que el `DELETE`: si la
+  auditoría falla, el rollback deja la cuenta entera. La fila guarda correo, fecha, IP y
+  User-Agent, y la UI **dice** que quedan (en `DeleteAccountModal`): una reserva de privacidad
+  que omite la IP es falsa.
+- **`DELETE /api/account` usa `requireSession`, NO `requireProfile`.** Es la única excepción a
+  la regla de las dos compuertas: una cuenta a medio crear tiene que poder borrarse. Si alguna
+  vez se le cambia la compuerta, hay que sacar también el aviso de `BorrarCuentaZona` de la
+  compuerta del alta, o queda una acción que la UI promete y el backend rechaza con 403.
 - Secretos **solo** en variables de entorno de Vercel. `.env` nunca se commitea.
 
 ## La API, endpoint por endpoint
@@ -554,19 +564,20 @@ pantalla de acceso (401), en el onboarding del CV (403) o entra a la app (200).
 | `GET` | `/api/health` | **ninguna** | `{ ok, service, time }`. No toca la DB ni Apify: es el smoke test del deploy |
 | `POST` | `/api/register` | ninguna (es el alta) | `{ ok, user, profileComplete: false }`. **Nunca** escribe `profiles` |
 | `POST` | `/api/login` | ninguna | `{ ok, user, profileComplete }`. Mismo cuerpo y tiempo pareados para correo inexistente y clave mala |
-| `POST` | `/api/logout` | `requireSession` | `{ ok: true }` + cookie con `Max-Age=0`. No borra nada del servidor |
+| `POST` | `/api/logout` | **ninguna** | `{ ok: true }` + cookie con `Max-Age=0`. No borra nada del servidor. Es el único que **no** llama a `requireSession`: sin sesión no hay cookie que borrar, y exigirla haría que el logout fallara justo cuando más falta hace (cookie vencida) |
 | `GET` | `/api/me` | `requireSession` | `{ user, profileComplete }`. **Es el que decide a dónde va el usuario**: 200 siempre, nunca 403 |
 | `GET` | `/api/profile` | **`requireProfile`** | el perfil del contrato, plano (sin envoltorio). 403 si falta el CV |
-| `PUT` | `/api/profile` | `requireSession` | `{ ok, profile }`. Es **reemplazo**, no parche: lo que no viene en el body se borra |
+| `PUT` | `/api/profile` | `requireSession` | `{ ok, profileComplete, profile }`. Es **reemplazo**, no parche: lo que no viene en el body se borra |
 | `POST` | `/api/cv/parse` | `requireSession` | `{ ok, profile, kind, saved: false }`. **Único** que llama a un LLM de pago |
+| `DELETE` | `/api/account` | `requireSession` | `{ ok: true }` + cookie con `Max-Age=0`. Audita la baja en la misma transacción que el `delete`, y **no** pide perfil: una cuenta sin CV se puede borrar |
 | `GET` | `/api/jobs?region=` | **`requireProfile`** | `{ region, jobs, total, _online, source, checkedAt }`. El primero que ve ofertas reales |
 | `GET` | `/api/job?q=` | **`requireProfile`** | `{ job, summary }`. `summary` es el `summarize()` de `coverLetter.js` y **puede ser `null`** |
 | `GET` | `/api/history?region=` | **`requireProfile`** | `{ region, jobs }`. Cada item con `active`/`firstSeen`/`lastSeen` y **sin `score`** |
 | `POST` | `/api/refresh` | **`requireProfile`** | `{ ok: true, _online, at, total, source }`. Disparador del TTL: sin `force` sería un no-op |
 | `GET` | `/api/cover-letter?region=&id=` | **`requireProfile`** | `{ lang, region, subject, body }` — lo que devuelve `generateCoverLetter` tal cual |
 | `GET` | `/api/analytics` | **`requireProfile`** | `{ generatedAt, candidato, matchProjection, skillStats, strongSkills, missingSkills, englishPct, recommendations, githubEvidence }`. Sin parámetros y **sin `force`**, por costo |
-| `POST` | `/api/linkedin-search` | `requireProfile` | **NO EXISTE TODAVÍA** (es el paso 10). Cuando exista: **se factura**, no lo llames para probar |
-| `GET` | `/api/directorio` | **NO EXISTE TODAVÍA** | es el paso 9: directorio de Argentina, sin scraping |
+| `POST` | `/api/linkedin-search` | `requireProfile` | `{ region, jobs, total, regions, stats, _online, source, checkedAt, resultLimit, pages, searchUrl }`. **Se factura** (actor Apify). Rate limit diario `apify_usage` + `APIFY_DAILY_LIMIT`. `buildProfileKeywords` generalizado (sin regex QA). |
+| `GET` | `/api/directorio` | `requireProfile` | `{ region, keyword, terms, bolsas, consultoras }`. Cada entrada con `searchUrl` + `searchKind: 'sitio' | 'google' | 'ninguno'`. No scrapea: abre búsquedas prellenadas en el sitio de cada portal/consultora |
 
 Tres cosas de esa tabla que no se deducen mirando los handlers:
 
@@ -574,6 +585,10 @@ Tres cosas de esa tabla que no se deducen mirando los handlers:
   ofertas que devuelve `/api/jobs` están rankeadas contra el perfil: sin perfil el `matcher`
   no tiene contra qué calcular y devolvería cero ofertas con un 200, que es indistinguible de
   "no hay nada para tu perfil". Un `requireSession` ahí daría 403 solo cuando falta el CV.
+- **`DELETE /api/account` NO pide perfil, y por eso es el único endpoint de escritura con
+  `requireSession` en lugar de `requireProfile`.** Una cuenta a medio crear (correo y clave
+  listos, CV nunca subido) es una cuenta real y tiene que poder deshacerse; si exigiera
+  perfil, un usuario que se registró por error y no quiere subir su CV quedaría atrapado.
 - **`/api/analytics` NO lleva `force` y esa es la decisión.** La tentación es pegarlo para
   que la página muestre datos frescos; es un error de costo (cada apertura golpearía las cinco
   bolsas) y además rompe la coherencia: `buildAnalytics` recalcula el score contra un perfil
@@ -633,10 +648,17 @@ es el endpoint que *decide* a dónde va el usuario; un 403 ahí mandaría al log
 
 **La cookie es un token firmado, no un id**: `v1.<user_id>.<exp>.<HMAC-SHA256 base64url>`.
 El logout NO borra nada del servidor (no hay tabla de sesiones): manda una cookie con
-`Max-Age=0`. La revocación real es la versión del token, que hoy está fija en `v1` porque el
-paso 11 (borrar cuenta) necesita invalidar sesiones. `requireSession` consulta `users` en
-cada request, así que **una cookie de un usuario dado de baja da 401**, no un 200 con datos
-fantasma.
+`Max-Age=0`. Y **no hace falta una columna `session_version` para revocar**: la revocación
+real es la fila de `users`, porque `requireSession` la consulta en cada request. Eso significa
+que **una cookie de un usuario dado de baja da 401**, no un 200 con datos fantasma, y que la
+forma de invalidarle todas las sesiones a alguien es borrarle la cuenta.
+
+**No agregues `session_version` "por las dudas"**: se llegó a pensar durante el paso 11 y
+salió al revés. Con `requireSession` validando contra `users` en cada request, una columna
+de versión no agrega revocación: agrega **una escritura más por login** y un segundo lugar
+donde el estado de la sesión puede quedar desincronizado del de la cuenta. Si algún día
+hace falta revocar *sin* borrar la cuenta, esa es una decisión nueva, y el lugar para discutirla
+es `MEMORIA.md` §5.
 
 **`Secure` se omite solo en loopback**: `shouldUseSecureCookie()` lo desactiva si el host es
 localhost/127.0.0.1 por HTTP, porque en local sobre `http://` un `Secure` hace que el navegador
@@ -831,6 +853,27 @@ que el matcher rankea de verdad según el perfil y no devuelve un número consta
 generalización del paso 6 funciona. El problema de fondo (que no haya bolsas gratuitas en
 español) **no se resuelve en este paso**: es un paso propio.
 
+### El paso 9 (Directorio de Argentina) está HECHO y VERIFICADO (2026-10-03)
+
+Son 5 archivos nuevos + 6 modificados:
+- `api/lib/directorio.js` — catálogo puro (9 bolsas + 4 consultoras de Argentina), `slugify`, `linkedinSearchUrl`, `consultoraSearchUrl` (mudadas de `utils.js`), `directorioFor`, `buildDirectory`.
+- `api/directorio.js` — `GET /api/directorio?region=` con `requireProfile`, `normalizeProfile` + `loadProfileSkills`, `sendJson`.
+- `frontend/src/components/DirectorioPage.jsx` — vista con dos secciones (bolsas/consultoras), tarjetas reusando `.job-card`, etiquetas `searchKind` (`sitio`/`google`/`ninguno`), aviso honesto cuando `keyword === ''`.
+- `frontend/src/components/RegionTabs.jsx` — botón `🔗 Directorio de empleo` en `.region-tabs-secondary`, exporta `SECCIONES = ['analisis', 'directorio']` y `esSeccion()`.
+- `frontend/src/api.js` — `loadDirectorio(region)` (patrón de lectura con `FALLBACK: null`).
+- `frontend/src/App.jsx` — cableado en `goToRegion` (rama `directorio` ANTES de países, cachea con `directorioCargado`), `statusText`, `handleRefresh` (vuelve a pedir el catálogo), `handleToggleHistory` (bloquea en secciones), `limpiarSesion` (limpia `directorio` + flag), render ternario `region === 'directorio' ? <DirectorioPage/>`.
+- `frontend/src/Toolbar.jsx` — `esSeccionActual = esSeccion(region)` (generaliza el viejo `isConsulta`).
+- `frontend/src/styles.css` — bloque `.directorio-*`, grilla `repeat(auto-fit, minmax(260px, 1fr))`, reusa `.cat-pill` + `.cat-qa`/`.cat-multi`/`.cat-gov` para las tres `searchKind`, **limpia clases huérfanas del tracker de outreach** (`.consultoras-tab`, `.consultoras-filter`, `.filter-label`, `.consultora-controls`, `.estado-select`, `.notas-input`, `.consultora-card`, `.consultora-logo`, `.consultora-logo-init`, y las tres variantes `.cat-it`, `.cat-staffing`, `.cat-fintech`).
+- `frontend/src/utils.js` — `linkedinSearchUrl` reexportada desde `../../api/lib/directorio.js`; `consultoraSearchUrl` borrada (se mudó al backend).
+
+**Verificación**: `npm run check` → **OK: 36 archivos** (antes 34: +2 `api/`); `npm run build` → 50 módulos. 43 aserciones del módulo puro (script temporal): `slugify` (acentos, `C#/C++`, vacío, signos, `ñ`), `linkedinSearchUrl`/`consultoraSearchUrl` byte a byte, respuesta exacta (`Object.keys` profundo), 8 bolsas `sitio` + Get on Board `ninguno`, 4 consultoras `google`/`ninguno`, caso sin perfil en 4 variantes (`null`, `{}`, `skills: []`, skills sin peso) → 13 entradas a `searchUrl === home` con `searchKind: 'ninguno'`. **0 fallas**.
+
+**Bolsas incluidas (verificadas)**: LinkedIn (SSR), Indeed AR (`?q=`, 403 a curl es anti-bot), Computrabajo (path `/trabajo-de-{slug}`, SSR, el más limpio), Bumeran (documentado por su sitemap, SPA), Empleo.com (`?q=`, español AR), Randstad AR (`/trabajos/{slug}/`, sin prefijo `s-`), Michael Page (`?search=`, sin ubicación), Jooble AR (patrón del índice, 403 a bots), Get on Board (vivo, `?q=` ignorado → `home` con `country=Argentina`).
+
+**Consultoras incluidas**: Randstad, Michael Page (Google `site:`), Adecco, Manpower (sin búsqueda por URL → `home`).
+
+**Excluidos con evidencia**: Hays (DNS falla, no opera en AR), Kelly (DNS falla, negocio absorbido), `bolsatrabajo.com` (dominio a la venta), `zonajobs.com.ar` (absorbido por Bumeran).
+
 | Skill | Cubre |
 |---|---|
 | `.opencode/skill/verificar-cambio/` | el ciclo de verificación y la prohibición de llamar a Apify |
@@ -840,8 +883,7 @@ español) **no se resuelve en este paso**: es un paso propio.
 
 `MEMORIA.md` tiene el detalle de todo esto con `archivo:línea`, las **decisiones ya tomadas**
 (inclusive la 9, la de la cascada), las dudas que siguen abiertas, y el plan de trabajo en 12
-pasos. **El paso 9 (directorio de Argentina) es el siguiente pendiente**, y después el 10
-(Apify, que se factura). Leelo antes de codear: casi todas las decisiones del plan salen de ahí.
+pasos. **El paso 9 (directorio de Argentina) está HECHO y VERIFICADO** (2026-10-03). **El paso 10 (Apify) está HECHO y VERIFICADO** (2026-10-03). **El paso 12 (guía de despliegue Vercel) está HECHO** (2026-10-03, `VERCEL_DEPLOY.md`). **Los 12 pasos del plan están completados.**
 
 La fuente de verdad para el código a portear es `F:\busqueda_trabajo`.
 

@@ -1,0 +1,182 @@
+# ============================================================================
+# CI — GitHub Actions
+#
+# Este workflow tiene TRES CAPAS ANTI-COBRO (portadas del CI del origen).
+# El objetivo: que el pipeline NUNCA pueda facturar por accidente.
+#
+# LOGS: cada job sube sus logs como **artifact descargable** (actions/upload-artifact).
+# Para verlos: Actions > click en el run > "Artifacts" al final de la página.
+# ============================================================================
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# CAPA 1: Jobs que NO corren tests que tocan servicios de pago
+# ──────────────────────────────────────────────────────────────────────────────
+# En el origen, el check de `/api/linkedin-search` estaba COMENTADO A PROPÓSITO.
+# Acá lo hacemos explícito: el job de "test" NO llama a Apify ni al LLM.
+# Los únicos endpoints que se ejercitan son los GRATIS:
+#   /api/health, /api/jobs, /api/directorio, /api/analytics, /api/cover-letter, etc.
+# ──────────────────────────────────────────────────────────────────────────────
+
+jobs:
+  # ────────────────────────────────────────────────────────────────────────────
+  # check: sintaxis (node --check) + build (vite)
+  # ────────────────────────────────────────────────────────────────────────────
+  check-and-build:
+    name: check + build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies (root + frontend via workspaces)
+        run: npm ci
+
+      # CAPA 1 (explícita): NO corremos tests que invoquen /api/linkedin-search ni /api/cv/parse.
+      # El comando `npm run check` solo PARSEA (node --check) y `npm run build` solo compila.
+      # Ninguno de los dos EJECUTA código, así que no hay riesgo de cobro.
+      - name: Syntax check (api/ + scripts/)
+        id: check
+        run: npm run check
+
+      - name: Build (frontend)
+        id: build
+        run: npm run build
+
+      # Subir logs como artifact descargable
+      - name: Upload logs (check + build)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-check-and-build
+          path: |
+            /home/runner/work/_temp/
+          retention-days: 7
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # CAPA 2: Guard — FALLA el job si APIFY_API_TOKEN está definido en el entorno
+  # ────────────────────────────────────────────────────────────────────────────
+  # Si alguien pone el token real en Secrets de GitHub "para que los tests pasen",
+  # este guard detecta la variable y HACE FALLAR EL JOB ANTES de que corra nada.
+  # El token de Apify SOLO debe existir en Vercel (producción), NUNCA en CI.
+  # ────────────────────────────────────────────────────────────────────────────
+  guard-no-apify-token:
+    name: guard: no APIFY_API_TOKEN in CI
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Este job NO tiene `env:` con APIFY_API_TOKEN a propósito.
+    # Si la variable existe en el entorno del runner (porque alguien la puso en
+    # Settings > Secrets > Actions), el `if` de abajo la detecta y falla.
+    steps:
+      - name: Verificar que APIFY_API_TOKEN NO esté seteado
+        id: guard
+        # `env.APIFY_API_TOKEN` viene del entorno del runner (GitHub Secrets).
+        # Si está definida Y no está vacía, `exit 1` falla el job.
+        run: |
+          if [ -n "${APIFY_API_TOKEN:-}" ]; then
+            echo "❌ FALLO: APIFY_API_TOKEN está definido en el entorno de CI."
+            echo "   El token de Apify NUNCA debe estar en GitHub Actions."
+            echo "   Solo va en Vercel (Settings > Environment Variables)."
+            exit 1
+          fi
+          echo "✅ APIFY_API_TOKEN no está en CI (correcto)."
+
+      - name: Upload logs (guard)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-guard-no-apify-token
+          path: /home/runner/work/_temp/
+          retention-days: 7
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # CAPA 3: Grep — Busca el prefijo real de token de Apify en archivos versionados
+  # ────────────────────────────────────────────────────────────────────────────
+  # Los tokens de Apify empiezan con `apifsk_` (Apify Secret Key).
+  # Si alguien commitea un token real (aunque sea en .env.example o un log),
+  # este grep lo detecta y falla el job.
+  # ────────────────────────────────────────────────────────────────────────────
+  grep-no-apify-secret:
+    name: grep: no apifsk_ in tracked files
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # necesario para grep sobre todo el árbol
+
+      - name: Buscar prefijo de token Apify (apifsk_)
+        id: grep
+        # -r = recursivo, -I = ignora binarios, -n = muestra número de línea
+        # --exclude-dir=.git = no buscar en .git
+        # Si encuentra algo, grep sale con código 1 y el job falla.
+        run: |
+          if git grep -rIn --exclude-dir=.git 'apifsk_' ; then
+            echo ""
+            echo "❌ FALLO: Se encontró el prefijo 'apifsk_' en archivos versionados."
+            echo "   Eso es un token real de Apify commiteado."
+            echo "   Revocá el token YA en https://console.apify.com/account/tokens"
+            echo "   y quitá el commit (git revert o rebase)."
+            exit 1
+          fi
+          echo "✅ No se encontró 'apifsk_' en archivos trackeados."
+
+      - name: Upload logs (grep)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-grep-no-apify-secret
+          path: /home/runner/work/_temp/
+          retention-days: 7
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Opcional: smoke test contra un deploy de preview (requiere Vercel token)
+  # ────────────────────────────────────────────────────────────────────────────
+  # Descomentá y configurá si querés que el CI valide /api/health en un
+  # deployment de preview de Vercel. Necesita:
+  #   - VERCEL_TOKEN en GitHub Secrets
+  #   - VERCEL_ORG_ID, VERCEL_PROJECT_ID en GitHub Secrets
+  # ────────────────────────────────────────────────────────────────────────────
+  # smoke-test-preview:
+  #   name: smoke test /api/health (preview)
+  #   needs: [check-and-build, guard-no-apify-token, grep-no-apify-secret]
+  #   runs-on: ubuntu-latest
+  #   timeout-minutes: 10
+  #   if: github.event_name == 'pull_request'  # solo en PRs
+  #   steps:
+  #     - name: Wait for Vercel preview
+  #       uses: actions/github-script@v7
+  #       with:
+  #         script: |
+  #           const deployment = await github.rest.repos.listDeployments({
+  #             owner: context.repo.owner,
+  #             repo: context.repo.repo,
+  #             environment: 'preview',
+  #             per_page: 1
+  #           });
+  #           return deployment.data[0]?.url || '';
+  #     - name: Smoke test /api/health
+  #       run: |
+  #         # URL vendría del paso anterior; simplificado:
+  #         curl -fsS ${{ needs.check-and-build.outputs.preview-url }}/api/health
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Reglas de concurrencia (evita builds duplicados en la misma rama/PR)
+# ──────────────────────────────────────────────────────────────────────────────
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true

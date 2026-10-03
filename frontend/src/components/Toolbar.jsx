@@ -6,6 +6,15 @@ import { useEffect, useState } from 'react';
 import { linkedinSearchUrl } from '../utils.js';
 // ↑ Importamos la función que arma el link de búsqueda de LinkedIn (del archivo utils).
 
+import { esSeccion } from './RegionTabs.jsx';
+// ↑ ¿La pestaña activa es una SECCIÓN (no una región con ofertas)? Se pregunta acá en
+//   vez de escribir `region === 'analisis' || region === 'directorio'` porque la lista
+//   de secciones vive en `RegionTabs.jsx`, que es el archivo que DIBUJA esos botones:
+//   es el único lugar donde se puede agregar una tercera sin que alguien se acuerde de
+//   venir a ocultar los controles de ofertas. Repearla acá era el modo de falla
+//   exacto: el botón "Actualizar búsqueda" aparecía sobre una vista sin ofertas y
+//   llamaba a `POST /api/refresh` sin que eso significara nada.
+
 // ============================================================================
 // Filtro de "% de match mínimo" — SOLO en el cliente.
 // ----------------------------------------------------------------------------
@@ -87,11 +96,15 @@ export default function Toolbar({
   // ↑ Desestructuración completa de props en la firma: así no escribimos props.algo
   //   en el cuerpo. Cada prop viaja del padre (App) hacia acá.
 
-  // En la pestaña de análisis esta barra no tiene sentido, porque ahí no se muestran
-  // ofertas ni historial: por eso ocultamos los botones.
-  const isConsulta = region === 'analisis';
-  // ↑ El nombre sobrevive a la limpieza de la pestaña de consultoras: sigue
-  //   preguntando "¿estoy en una sección que no es una lista de ofertas?".
+  // En una sección (Propuesta de Interés, Directorio de empleo) esta barra no tiene
+  // sentido, porque ahí no se muestran ofertas ni historial: por eso ocultamos los
+  // botones.
+  const esSeccionActual = esSeccion(region);
+  // ↑ El nombre viejo era `isConsulta`, que en realidad preguntaba "¿es la pestaña
+  //   de análisis?". Con el Directorio la pregunta cambió de alcance —"¿esto es una
+  //   sección o una región con ofertas?"— y un nombre que dice "consulta" sobre un
+  //   catálogo de links ya mentiría. La respuesta para `analisis` NO cambia: sigue
+  //   devolviendo `true` y el bloque de acciones sigue oculto, igual que antes.
 
   // Estado local del campo de % personalizado. NO es el filtro: es lo que el
   // usuario tiene escrito ahora mismo (puede ser inválido, como un "7" a medio
@@ -217,9 +230,10 @@ export default function Toolbar({
       )}
 
       {/* Render condicional: los botones y el filtro de % solo aparecen en
-          regiones de ofertas reales (no en Propuesta de Interés).
+          regiones de ofertas reales (no en las secciones: Propuesta de Interés ni
+          Directorio de empleo, que no muestran una lista de ofertas).
           El <>...</> agrupa los dos bloques en una sola línea del condicional. */}
-      {!isConsulta && (
+      {!esSeccionActual && (
         <>
         <div className="toolbar-actions">
           <button className="btn small" onClick={onRefresh} disabled={refreshing} title="Volver a consultar las fuentes ahora">
@@ -284,7 +298,7 @@ export default function Toolbar({
               las keywords + la región actual (sin scrapear nada). */}
         </div>
 
-        {effectiveLimit != null && !isConsulta && (
+        {effectiveLimit != null && !esSeccionActual && (
           <div className="effective-limit">
             {/* ↑ El límite REAL con el que corrió la última búsqueda. Se muestra
                 porque el texto del botón promete una cantidad y el backend puede

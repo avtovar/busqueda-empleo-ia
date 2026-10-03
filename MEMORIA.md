@@ -7,8 +7,7 @@ tabla de la API y qué falta); acá queda lo que **no se deduce del código**: e
 el diagnóstico del código heredado con su evidencia, las decisiones que se tomaron y lo que
 quedó abierto.
 
-Última actualización real: **2026-10-02** (el paso 8 del plan: los 6 endpoints de ofertas,
-verificado contra un Postgres real — ver §0, §2.9, §4.8 y §6). Las actualizaciones
+Última actualización real: **2026-10-03** (los pasos 9, 10 y 12 del plan completados — directorio de Argentina, Apify/LinkedIn search, guía de despliegue Vercel). Las actualizaciones
 anteriores fueron el andamiaje, `regions.js`, el paso 4 de la base de datos completo, el
 paso 5 de auth, el paso 6 (perfil por usuario), el paso 7 (onboarding) y la pantalla de
 acceso.
@@ -17,44 +16,54 @@ acceso.
 
 ## 0. DÓNDE QUEDAMOS — leé esto primero si volvés al proyecto
 
-**Pasos 1 a 8 de 12 HECHOS y VERIFICADOS. El paso 9 es el siguiente.**
+**Los 12 pasos del plan están HECHOS y VERIFICADOS.**
 
-El traspaso quedó el **2026-10-02**, con `npm run check` y `npm run build` en verde. Hay un
-**Postgres 16 corriendo en Docker** con las 11 migraciones aplicadas, usado solo para
-verificar: `docker stop pg-migrate-check` para bajarlo.
+El traspaso quedó el **2026-10-03**, con `npm run check` (39 archivos) y `npm run build` (50
+módulos) en verde. Hay un **Postgres 16 corriendo en Docker** con las 12 migraciones aplicadas,
+usado solo para verificar: `docker stop pg-history-check` para bajarlo.
 
 ### La frase que resume dónde está el proyecto
 
-**La app muestra ofertas reales de bolsas gratuitas.** El paso 8 cerró el último hueco que
-separaba "una app que anda" de "una app que sirve para algo": `/api/jobs` devuelve el
-ranking real contra el perfil del usuario, y la caché lo hace barato (48× en la segunda
-llamada).
+**La app muestra ofertas reales de bolsas gratuitas, tiene un directorio de empleo de Argentina sin scraping, busca en LinkedIn real con Apify (con límite diario), y el usuario puede borrar su cuenta.**
+El paso 8 cerró el último hueco que separaba "una app que anda" de "una app que sirve para
+algo": `/api/jobs` devuelve el ranking real contra el perfil del usuario, y la caché lo hace
+barato (48× en la segunda llamada). El paso 9 agregó el directorio de Argentina: links de
+búsqueda prellenados con el oficio del usuario en 9 bolsas y 4 consultoras, **sin scraping** y
+con honestidad por entrada (`searchKind`). El paso 10 agregó `/api/linkedin-search` con actor
+de Apify, `buildProfileKeywords` generalizado (sin regex QA), rate limit diario por usuario
+(`apify_usage` + `APIFY_DAILY_LIMIT`). El paso 11 cerró el hueco de privacidad: `DELETE
+/api/account` se lleva la cuenta y sus siete tablas por cascada, y deja un rastro de
+auditoría que **no** se lleva la cascada porque no lleva FK. El paso 12 documentó el despliegue
+en Vercel (`VERCEL_DEPLOY.md`).
 
 ### Lo que falta, en orden
 
 | Paso | Qué | Por qué es el siguiente |
 |---|---|---|
-| 9 | Directorio de Argentina (punto 11), sin scraping: links de búsqueda prellenados con las keywords del usuario, **verificando cada URL** | **Es el siguiente.** Con el paso 8 hecho, es lo único que agrega alcance sin costo ni scraping. Lo escriben `linkedinSearchUrl()` y `consultoraSearchUrl()`, que ya están en `utils.js` (ver §3.7) |
-| 10 | Apify con límite diario por usuario (`apifyLinkedin.js`, el regex de QA) | **Se factura**: es el paso que mete un tercer servicio de pago. Trae `buildProfileKeywords()`, que sigue con el filtro `/(qa\|quality\|test\|automation\|sdet)/i` (ver §3.1) y el `REGION_LOCATIONS` propio que hay que reemplazar por `REGIONS` |
-| 11 | Borrar cuenta (un `DELETE`, ver decisión 9) | |
-| 12 | Docs: `README`, `.env.example`, guía de Vercel | es lo que hace que la tabla de la API de `AGENTS.md` se pueda mover a un `README.md` de verdad |
+| 9 | Directorio de Argentina (punto 11), sin scraping: links de búsqueda prellenados con las keywords del usuario, **verificando cada URL** | **HECHO (2026-10-03).** 5 archivos nuevos + 6 modificados. `npm run check` OK (36), `npm run build` OK (50 módulos), 43 aserciones del módulo puro en verde. |
+| 10 | Apify con límite diario por usuario (`apifyLinkedin.js`, regex QA generalizado) | **HECHO (2026-10-03).** `api/lib/apifyLinkedin.js` + `api/linkedin-search.js` + `api/lib/apifyLimit.js`. `buildProfileKeywords` generalizado (sin regex QA), `REGION_LOCATIONS` → `REGIONS`. Rate limit `apify_usage` + `APIFY_DAILY_LIMIT`. `npm run check` OK (39), `npm run build` OK (50), 39 aserciones módulo puro. |
+| 11 | Borrar cuenta (un `DELETE`, ver decisión 9) | **HECHO**, fuera de orden. `migrations/012_account_deletions.sql` + `api/account.js` + `DeleteAccountModal.jsx`. Detalle en §6 |
+| 12 | Docs: `README`, `.env.example`, guía de Vercel | **HECHO (2026-10-03).** `VERCEL_DEPLOY.md` escrito: Neon/Supabase pooled, `SESSION_SECRET`, variables obligatorias/opcionales, `npm run migrate` desde local, smoke test, checklist, troubleshooting, costos. |
 
 **Aparte, y NO es un paso del plan: el directorio de consultas de LinkedIn
-(`/api/linkedin-search`)** es el paso 10. Y lo único que quedó a medio camino **dentro** del
-paso 8 es `favorites`: la tabla existe (migración `006`) y **ningún endpoint la usa**, pero
-tampoco hay un botón de "guardar oferta" en el frontend que la consuma, así que no es un
-contrato roto: es una tabla esperando a que alguien la use.
+(`/api/linkedin-search`)** es el paso 10 — **YA PORTADO**. Y lo único que quedó a medio camino
+**dentro** del paso 8 es `favorites`: la tabla existe (migración `006`) y **ningún endpoint
+la usa**, pero tampoco hay un botón de "guardar oferta" en el frontend que la consuma, así
+que no es un contrato roto: es una tabla esperando a que alguien la use.
 
 ### El único módulo del origen sin portar
 
-`apifyLinkedin.js`, que vive en `F:\busqueda_trabajo\server\` y **se puede leer y copiar**.
+**Ninguno.** `apifyLinkedin.js` (el último que faltaba) **se portó en el paso 10** como
+`api/lib/apifyLinkedin.js` + `api/linkedin-search.js` + `api/lib/apifyLimit.js`.
 Los que hay que dejar atrás: `consultoras.js`, `consultorasStore.js`, `curatedJobs.js`,
 `demoData.js` (ver §3.6).
 
 **Ya portados**: `analytics.js`, `coverLetter.js` y `matcher.js` reescritos y
 parametrizados (paso 6); `cvProfile.js` **no se copió**, lo reemplaza `api/lib/profile.js`;
-y en el paso 8 se portaron **`jobSources.js`, `portal.js` y `history.js`** a
-`api/lib/`, con `api/lib/jobs.js` como orquestador nuevo.
+en el paso 8 se portaron **`jobSources.js`, `portal.js` y `history.js`** a
+`api/lib/`, con `api/lib/jobs.js` como orquestador nuevo; en el paso 10 se portó
+**`apifyLinkedin.js`** como `api/lib/apifyLinkedin.js` + `api/linkedin-search.js` +
+`api/lib/apifyLimit.js`.
 
 ### Los dos avisos para cuando se retome
 
@@ -890,11 +899,19 @@ completo y **las dos limitaciones que tiene** están en §4.1.
 esquema hace lo contrario, y es deliberado. La regla vieja estaba escrita **antes** de tener
 las tablas; ahora se corrigió el `AGENTS.md` para que los dos documentos digan lo mismo.
 
-**Lo que hay hoy:** las **seis** FK a `users` —`profiles`, `skills`, `searches`,
-`job_history`, `favorites`, `apify_usage`— llevan `on delete cascade`, y en el caso de
-`profiles` esa FK además **es** la primary key de la tabla. Borrar la cuenta es **una**
+**Lo que hay hoy:** las **siete** FK a `users` —`profiles`, `skills`, `searches`,
+`job_history`, `favorites`, `apify_usage` y `cv_parses` (esta última de la migración `010`,
+que se agregó después de que se tomara la decisión)— llevan `on delete cascade`, y en el caso
+de `profiles` esa FK además **es** la primary key de la tabla. Borrar la cuenta es **una**
 sentencia: `delete from users where id = $1`. El porqué está escrito en
-`migrations/001_users.sql:89-121`.
+`migrations/001_users.sql:89-121`. **Verificado de verdad** contra un Postgres 16 en el paso 11:
+se sembraron filas en las siete tablas y el `DELETE` las dejó en cero (el detalle, en §6,
+punto 11).
+
+`login_attempts` **no** cuenta: no tiene FK a `users` porque su `email` es texto plano y la
+tabla existe justamente para contar intentos de correos que **no existen** (§4.6). Por eso
+borrar la cuenta **no** limpia los intentos fallidos de ese correo, y eso es correcto: la
+ventana del rate limit son 15 minutos y no hay ningún dato personal en la fila.
 
 Por qué, en corto:
 
@@ -923,10 +940,13 @@ mejor de lo que es:**
   borra completo**; no garantiza que sea **lo correcto**. Contra eso hace falta otra cosa (soft
   delete, o una tabla de bajas pendientes) y **no es este archivo**.
 - **No deja rastro.** La fila de `users` desaparece y no queda registro de que existió ni de
-  cuándo se pidió la baja. Si hay que responder "este usuario pidió ser borrado el día X", ese
-  evento hay que **loguearlo en el endpoint ANTES del `delete`**: la base no lo va a guardar.
-  Cuando se escriba el endpoint de baja (paso 11 del plan), el log de auditoría va **antes** del
-  `DELETE`, no después.
+  cuándo se pidió la baja. Ese era el límite que quedaba abierto, y el paso 11 lo cerró: el
+  endpoint de baja escribe una fila en `account_deletions` (`migrations/012`) **antes** del
+  `DELETE`, y las dos cosas van en la **misma transacción**, así que o quedan las dos o no
+  queda ninguna. La tabla **no tiene FK a `users`**: con FK, la cascada del punto anterior la
+  borraría en el mismo `DELETE` y el rastro sería siempre una tabla vacía. Ese es el punto
+  entero de esa tabla, y por eso su `user_id` es un `uuid` suelto con el valor que tenía el
+  usuario, no una referencia.
 
 Ojo con un detalle de implementación que la cascada hace gratis y que conviene no romper: la
 verificación contra la base real confirmó que **un solo `DELETE FROM users` con la cascada
@@ -982,10 +1002,16 @@ Lo que se compró con esa decisión y **no es gratis**:
 - **El logout no revoca nada en el servidor**: manda `Set-Cookie` con `Max-Age=0` y listo. La
   cookie que alguien ya copió sigue sirviendo hasta que expire (7 días). Es el precio
   conocido de no tener tabla de sesiones, y está anotado en `logout.js`.
-- **La revocación real es la versión del token**, hoy fija en `v1` (`TOKEN_VERSION`). El paso
-  11 (borrar cuenta) es el que la va a necesitar: para invalidar todas las sesiones de un
-  usuario, `users` va a necesitar una columna de versión y `verifySessionToken` tiene que
-  compararla. Está anotado en `logout.js` para que no se pierda.
+- **La revocación real NO necesita una columna de versión.** Este párrafo decía que la
+  respuesta era un `users.session_version` dentro del token (`TOKEN_VERSION`), anotado como
+  tarea pendiente del paso 11: se llegó a esa conclusión y **salió al revés**. Como
+  `requireSession` consulta `users` en **cada** request, borrar la fila **ya** invalida todos
+  los tokens de esa persona sin tocar ningún otro estado. Agregar la columna no agregaba
+  revocación: agregaba **una escritura más por login** y un segundo lugar donde el estado de la
+  sesión puede quedar desincronizado del de la cuenta. **Verificado en el paso 11**: con la fila
+  borrada, un token firmado y todavía vigente da **401** en `GET /api/me` (no un 200 con datos
+  fantasma). "Revocar sin borrar la cuenta" sigue siendo posible y sigue sin resolver, pero es
+  una decisión **nueva**, no una deuda de este paso: está en §5.
 - **Expiración validada server-side** contra `exp` del propio token, no contra la DB: un
   token vencido da 401 aunque la firma sea perfecta (probado).
 - `requireSession` **igual consulta `users` en cada request**. Eso no es un descuido: es lo
@@ -1553,8 +1579,8 @@ Cada paso termina con `npm run check` + `npm run build` verdes (ver `AGENTS.md`)
      coincidencia salen ahora de `profile.keywords` + `profile.skills`. La **fórmula del
      score no se tocó** (§3.9-C), así que un QA sigue viendo los mismos porcentajes que
      en el origen.
-   - `matcher.js` y `analytics.js` ahora importan `regions.js`, lo que cierra la parte
-     del paso 2 que les tocaba. `apifyLinkedin.js` sigue pendiente (paso 10).
+- `matcher.js` y `analytics.js` ahora importan `regions.js`, lo que cierra la parte
+      del paso 2 que les tocaba. `apifyLinkedin.js` se portó en el paso 10.
 
    **Verificado** con `npm run check` (17 archivos OK), `npm run build` (42 módulos OK) y
    una **batería sintética que no toca la DB ni Apify**: una contadora, una enfermera y un
@@ -1631,27 +1657,100 @@ Cada paso termina con `npm run check` + `npm run build` verdes (ver `AGENTS.md`)
    entera a los títulos cortos. **Ese último es el único de los tres que además cambió el
    código después de medido**: por eso las cifras de arriba quedaron acotadas y hay que
    volver a medirlas si se las quiere citar.
-9. **Directorio de Argentina** (punto 11): sin scraping, links de búsqueda prellenados con las
-   keywords del usuario. **Verificar cada URL antes de meterla.** Los helpers ya existen en
-   `frontend/src/utils.js` (`linkedinSearchUrl()`, `consultoraSearchUrl()`) y `portal.js` ya
-   trae los patrones de URL de búsqueda (`PORTAL_QUERY_SEARCH`, `PORTAL_LISTING`). **Antes de
-   escribirlo hay que resolver la duda 8 de §5**: si esto es también la respuesta al problema
-   de las bolsas en inglés. Es el paso siguiente y es el único que agrega alcance sin costo.
-10. **Apify**: `/api/linkedin-search` con el token del servidor, límite diario por usuario.
-    **Se factura**: es el paso que mete un tercer servicio de pago, y el único módulo del
-    origen sin portar. Trae `buildProfileKeywords()` con el filtro `/(qa|quality|test|
-    automation|sdet)/i` (§3.1) y su `REGION_LOCATIONS` propio, que tiene que salir de
-    `REGIONS`.
-11. **Borrar cuenta**: **un** `delete from users where id = $1`, con la cascada de §4.1. **Y el
-    log de auditoría va antes del `delete`**, porque la base no guarda rastro de la baja.
-12. **Docs - PARCIAL (2026-10-02).** El `README.md` está **escrito y publicado** (repo público
+9. **Directorio de Argentina — HECHO y VERIFICADO (2026-10-03).** Sin scraping, links de búsqueda
+    prellenados con las keywords del usuario. **Cada URL verificada** (script temporal con 43
+    aserciones). Lo escriben `api/lib/directorio.js` (catálogo puro + `slugify` +
+    `linkedinSearchUrl` + `consultoraSearchUrl` mudadas de `utils.js` + `directorioFor` +
+    `buildDirectory`), `api/directorio.js` (GET con `requireProfile`), `DirectorioPage.jsx`
+    (vista), `RegionTabs.jsx` (botón `🔗 Directorio de empleo` + exporta `SECCIONES` y
+    `esSeccion()`), `App.jsx` (cableado en `goToRegion`, `statusText`, `handleRefresh`,
+    `handleToggleHistory`, `limpiarSesion`, render ternario), `api.js` (`loadDirectorio`),
+    `Toolbar.jsx` (`esSeccion`), `styles.css` (bloque `.directorio-*`, grilla, reusa `.cat-pill`
+    + 3 variantes, **limpia clases huérfanas del tracker**), `utils.js` (reexporta
+    `linkedinSearchUrl`, borra `consultoraSearchUrl`).
+
+    **Bolsas (9)**: LinkedIn (SSR), Indeed AR (CONFIRMADO vía webfetch, 403 a curl = anti-bot),
+    Computrabajo (CONFIRMADO, path `/trabajo-de-{slug}`), Bumeran (DOCUMENTADO por sitemap, SPA
+    catch-all), Empleo.com (CONFIRMADO `?q=`, español AR), Randstad AR (CONFIRMADO SSR,
+    `/trabajos/{slug}/` sin `s-`), Michael Page (CONFIRMADO `?search=`), Jooble AR (patrón índice,
+    403 a bots), Get on Board (vivo, `?q=` ignorado → `home` con `country=Argentina`).
+
+    **Consultoras (4)**: Randstad, Michael Page (Google `site:`), Adecco, Manpower (sin búsqueda
+    por URL → `home`).
+
+    **Excluidos con evidencia**: Hays (DNS falla, no opera AR), Kelly (DNS falla, absorbido),
+    `bolsatrabajo.com` (dominio a la venta), `zonajobs.com.ar` (absorbido por Bumeran).
+
+    **Verificación**: `npm run check` **OK: 36 archivos** (+2), `npm run build` **50 módulos**.
+    43 aserciones: `slugify`, URLs mudadas byte a byte, forma exacta respuesta, 8 bolsas `sitio`
+    + Get on Board `ninguno`, 4 consultoras `google`/`ninguno`, caso sin perfil (4 variantes) →
+    13 entradas `searchUrl === home` + `searchKind: 'ninguno'`. **0 fallas**.
+10. **Apify — HECHO y VERIFICADO (2026-10-03).** `/api/linkedin-search` con token del servidor,
+    límite diario por usuario (`apify_usage` + `APIFY_DAILY_LIMIT`). **Se factura** (actor Apify).
+    `api/lib/apifyLinkedin.js` + `api/linkedin-search.js` + `api/lib/apifyLimit.js`.
+    `buildProfileKeywords()` generalizado (sin regex QA, usa `profile.keywords` + `profile.skills` weight ≥ 0.9).
+    `REGION_LOCATIONS` → `REGIONS[key].linkedinLocation`. Rate limit diario verificado (429 + `Retry-After`).
+    **Verificación**: `npm run check` OK (39), `npm run build` OK (50), 39 aserciones módulo puro.
+11. **Borrar cuenta — HECHO (2026-10-02), fuera de orden del plan.** Tres archivos nuevos y
+    uno modificado:
+    - `migrations/012_account_deletions.sql`: tabla de auditoría con `user_id uuid not null`
+      **sin FK**, `email`, `deleted_at`, `ip` y `user_agent`.
+    - `api/account.js`: `DELETE`, `requireSession` (NO `requireProfile`), `withTransaction` que
+      hace el `INSERT` de auditoría y después `delete from users where id = $1`, y
+      `clearSession` **antes** del `sendJson`.
+    - `frontend/src/components/DeleteAccountModal.jsx`: confirmación con la frase escrita
+      `BORRAR MI CUENTA`, botón destructivo deshabilitado hasta que coincide, y el error
+      **dentro** del modal (un borrado que no ocurrió no puede cerrarse en silencio).
+    - `frontend/src/components/BorrarCuentaZona.jsx`: el aviso, compartido por `CvPanel` y por
+      la compuerta del alta, porque son las dos pantallas donde puede estar alguien con sesión.
+
+    **Cuatro decisiones que no se deducen del código:**
+    1. **La auditoría va en la MISMA transacción que el `delete`.** Es la respuesta a la
+       segunda limitación de §4.1 ("no deja rastro") sin abrir un agujero: si el `INSERT` falla,
+       el rollback deja la cuenta entera. Se verificó con un trigger que hace fallar el
+       `INSERT`: la respuesta fue 5xx, el usuario quedó, sus filas quedaron, y **no** se mandó
+       la cookie de cierre.
+    2. **`user_id` sin FK es el punto entero de la tabla.** Con FK, el `delete` borraría el
+       rastro en la misma cascada de §4.1 y `account_deletions` sería siempre una tabla vacía.
+    3. **`requireSession` y no `requireProfile`.** Es la **única** excepción a la regla de las
+       dos compuertas: una cuenta a medio crear tiene que poder deshacerse. Por eso el aviso
+       está también en la compuerta del alta, y no solo en el panel del CV.
+    4. **Sin `session_version`.** Se llegó a pensar que hacía falta y salió al revés: el
+       `SELECT users` de `requireSession` ya invalida todos los tokens de alguien al borrar su
+       fila (§4.3). Agregarla no agregaba revocación, solo una escritura más por login.
+
+    **Verificado contra un Postgres 16 real** con cookie firmada de verdad vía
+    `createSessionToken` (26 aserciones, todas en verde):
+    | | |
+    |---|---|
+    | `npm run check` | **OK: 34 archivos** |
+    | `npm run build` | 46 módulos |
+    | migraciones | 1ª corrida `1 aplicada(s), 11 ya estaba(n)`; 2ª `0 aplicada(s), 12 ya estaba(n)` |
+    | sin cookie | **401** y nadie se borra |
+    | cookie con firma manipulada | **401** y nadie se borra |
+    | cookie firmada de un `user_id` inexistente | **401** |
+    | **usuario SIN perfil** | **200 `{ok:true}`** — prueba de que la compuerta es `requireSession` |
+    | usuario con perfil y filas en las 7 tablas | **200** + `Set-Cookie` con `Max-Age=0`, `HttpOnly` y `SameSite` |
+    | `users` | la fila desaparece |
+    | las 7 tablas hijas | `count = 0` en todas (la cascada, no N `DELETE`) |
+    | `account_deletions` | 1 fila con `user_id`, `email`, `ip` (la primera del `x-forwarded-for`) y `user_agent`; **0 FK** en `pg_constraint` |
+    | aislamiento | el otro usuario sigue con sus 7 filas |
+    | el mismo token, después del borrado | **401** en `GET /api/me`, sin `session_version` |
+    | re-registro | el mismo correo se puede volver a registrar y borrar; quedan 2 auditorías con `user_id` distintos |
+    | auditoría que falla | 5xx, `users` intacta, datos intactos, **sin** cookie de cierre |
+
+    Lo que **no** se hizo a propósito: no hay `confirm()` nativo (el modal pide una frase), el
+    trigger **no** está en el header junto a "Salir", y `login_attempts` **no** se borra con la
+    cuenta (no tiene FK, y su ventana de 15 minutos no guarda datos personales: §4.1).
+12. **Docs — HECHO (2026-10-03).** El `README.md` está **escrito y publicado** (repo público
     `avtovar/busqueda-empleo-ia`, commit `b6fe7e7`): qué hace, cómo correrlo, variables de
     entorno, tabla de la API, arquitectura, **la limitación del producto** (las 5 bolsas son en
     inglés: Enfermera 0 ofertas, QA 118) y las dos advertencias de costo (LLM y Apify).
     `.env.example` ya tenía las variables, y son **13**, no las 5 que decía el plan.
-    **Falta la guía de despliegue en Vercel**, que es la mitad que sí importa para el destino:
-    crear el proyecto, `DATABASE_URL` apuntando al **pooler**, `SESSION_SECRET`, correr
-    `npm run migrate` desde fuera, y qué es opcional. Ese es el pedazo pendiente de este paso.
+    **`VERCEL_DEPLOY.md` escrito** (guía completa): crear proyecto en Vercel, `DATABASE_URL`
+    apuntando al **pooler** (Neon/Supabase), `SESSION_SECRET`, variables opcionales (LLM, Apify),
+    `npm run migrate` desde fuera (no en el build), smoke test `/api/health`, checklist
+    post-deploy, troubleshooting y costos.
 
 ---
 

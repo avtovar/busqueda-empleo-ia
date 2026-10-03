@@ -49,8 +49,10 @@
 // del navegador, pero si alguien copió el valor del token, ese token sigue
 // valiendo hasta que expire. Por eso la duración por defecto son 7 días y no 30
 // (ver `SESSION_TTL_DAYS`). Cuando haga falta revocar de verdad, la respuesta
-// NO es una tabla de sesiones sino un `session_version integer not null default 0`
-// en `users` que se incrementa y va dentro del token firmado.
+// NO es una tabla de sesiones ni un `session_version` en `users`: es que la fila
+// de `users` deje de existir o de servir, porque `requireSession` la consulta en
+// CADA request. Ese select es lo que hace que una cookie de un usuario dado de
+// baja (`DELETE /api/account`, paso 11) dé 401 sin tocar ningún otro estado.
 //
 // ── LO QUE ESTE MÓDULO NO HACE ───────────────────────────────────────────────
 // No crea el perfil. El perfil se escribe en el paso 6/7, después de que el

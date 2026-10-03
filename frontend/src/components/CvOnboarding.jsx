@@ -35,6 +35,10 @@ import { parseCv, saveProfile } from '../api.js';
 //   `fetch`: si mañana cambia una URL o el manejo de errores, se cambia acá y no
 //   en tres lugares.
 
+import BorrarCuentaZona from './BorrarCuentaZona.jsx';
+// ↑ La zona "borrar mi cuenta" del paso 11, compartida con `CvPanel` para que las
+//   dos pantallas den acceso a la misma acción con el mismo texto.
+
 // ── El tope de tamaño, repetido acá a propósito ───────────────────────────────
 // Es el MISMO número que `MAX_CV_BYTES` de `api/lib/cvText.js`. No se importa, y
 // no es descuido: ese módulo es de Node (usa `Buffer`, streams y carga
@@ -164,12 +168,15 @@ function buildPayload(draft) {
   };
 }
 
-export default function CvOnboarding({ profile, onSaved, onCancel }) {
+export default function CvOnboarding({ profile, onSaved, onCancel, onDeleteAccount }) {
   // ↑ `profile`: el perfil a editar, o null cuando es el alta de cero.
   //   `onSaved`: recibe el perfil LEÍDO de la base (no el borrador) para que el
   //   padre lo ponga en su estado global. `onCancel`: si viene, el componente se
   //   muestra como modal y se puede cerrar; si no viene, es la compuerta a pantalla
   //   completa y no se puede cerrar (no hay nada que ver atrás).
+  //   `onDeleteAccount`: abre el modal de borrado. Solo lo usa la compuerta (el
+  //   editor ya tiene el panel del CV detrás, con su propia zona de peligro), y es
+  //   opcional justamente por eso: sin él, el editor no duplica el aviso.
 
   const esEditor = Boolean(onCancel);
   // ↑ Un solo componente, dos usos. La diferencia de comportamiento son tres
@@ -752,6 +759,16 @@ export default function CvOnboarding({ profile, onSaved, onCancel }) {
         oferta. Es el paso que falta después de crear tu cuenta.
       </p>
       {cuerpo}
+
+      {onDeleteAccount && <BorrarCuentaZona onDeleteAccount={onDeleteAccount} />}
+      {/* ↑ La MISMA zona de peligro que en `CvPanel`, y está por un motivo
+          concreto: `DELETE /api/account` usa `requireSession` y NO
+          `requireProfile`, justamente para que una cuenta a medio crear (correo
+          y clave listos, CV nunca subido) se pueda borrar. Si el único trigger
+          estuviera en el panel del CV, esa compuerta sería un callejón sin
+          salida: la cuenta se puede crear, pero no se puede deshacer desde la
+          única pantalla donde ese usuario puede estar. Un endpoint que permite
+          algo que la UI no ofrece es la mitad de unfeature roto. */}
     </section>
   );
 }

@@ -1,6 +1,6 @@
 ---
 name: agregar-pais
-description: Agrega un país (además de Argentina) a la configuración única de regiones de busqueda-empleo-ia, incluyendo su URL de búsqueda en LinkedIn. Usar cuando el usuario pida "agregar México", "soportar Chile", "expandir a otro país", "cuántos países más", o cuando haya que cambiar o corregir los datos de una región existente.
+description: Agrega un país (además de Argentina) a la configuración única de regiones de busqueda-empleo-ia, incluyendo su URL de búsqueda en LinkedIn y su catálogo de bolsas/consultoras. Usar cuando el usuario pida "agregar México", "soportar Chile", "expandir a otro país", "cuántos países más", o cuando haya que cambiar o corregir los datos de una región existente.
 ---
 
 # Agregar un país a la configuración de regiones
@@ -27,14 +27,16 @@ argentina: {
   lang: 'es',                // idioma de las cartas de presentación de esa región
   countries: ['Argentina', 'Buenos Aires', 'CABA', 'Córdoba'],
   linkedinLocation: 'Argentina',  // lo que se pasa a la búsqueda de LinkedIn
-  portals: { ... },          // bolsas y consultoras del país (ver skill agregar-directorio)
+  // `portals` ya NO vive acá: el catálogo del directorio está en `api/lib/directorio.js`
+  // (`DIRECTORIO` keyed by region). Al agregar un país, agregá su entrada en `regions.js`
+  // Y en `api/lib/directorio.js` su catálogo `bolsas` + `consultoras` con URLs verificadas.
 }
 ```
 
-## Los 5 consumidores, y por qué todos leen de la config
+## Los 6 consumidores, y por qué todos leen de la config
 
-Para cambiar o agregar una región, **tocá solo `regions.js`**. Estos son los consumidores,
-y ninguno debe volver a hardcodear nada:
+Para cambiar o agregar una región, **tocá solo `regions.js` y `api/lib/directorio.js`**.
+Estos son los consumidores, y ninguno debe volver a hardcodear nada:
 
 | Consumidor | Qué saca de la config |
 |---|---|
@@ -43,6 +45,7 @@ y ninguno debe volver a hardcodear nada:
 | `api/lib/coverLetter.js` | `lang` para decidir carta ES/EN |
 | `api/analytics.js` | `label` para los contadores por región |
 | `frontend/src/utils.js` | `label` para las pestañas y el `REGION_LOCATION` de la UI |
+| `api/lib/directorio.js` | `DIRECTORIO[region]` para el catálogo de bolsas/consultoras |
 
 Si tocás uno de esos archivos a mano para agregar un país, la próxima región va a volver a
 exigir el mismo cambio. Ese es el bug.
@@ -63,14 +66,14 @@ Europa y se perdía. No lo reviertas sin pensarlo.
 
 ## Checklist
 
-- [ ] La región nueva está en `api/lib/regions.js`, con los 5 campos
+- [ ] La región nueva está en `api/lib/regions.js`, con los 4 campos (`label`, `lang`, `countries`, `linkedinLocation`)
 - [ ] `countries` incluye las variantes que la gente escribe de verdad (con y sin acento,
       abreviaturas como "CABA", nombres de las provincias o estados principales)
 - [ ] `linkedinLocation` es **el texto que LinkedIn espera**, no el nombre del país en
       español. Verificá contra una búsqueda real de LinkedIn.
 - [ ] `lang` es correcto: define el idioma de la carta, no el de la búsqueda
-- [ ] Las bolsas del país están en su `portals`, con **cada URL verificada** (ver la skill
-      `agregar-directorio`)
+- [ ] El catálogo del directorio está en `api/lib/directorio.js` (`DIRECTORIO[region]` con
+      `bolsas` + `consultoras`), **cada URL verificada** (script temporal con aserciones)
 - [ ] `npm run check` y `npm run build` pasan
 - [ ] Una búsqueda de prueba trae ofertas de la región nueva y `assignRegion` las clasifica
       bien

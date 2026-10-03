@@ -8,9 +8,9 @@ Multiusuario, sin backend con estado: funciones serverless + Postgres.
 
 > **Estado: en construcción.** Es un proyecto activo, no un producto terminado.
 > Está hecho el camino completo de alta → CV → perfil → ofertas → match → carta →
-> analítica. **Falta** el despliegue, el borrado de cuenta y las búsquedas de
-> LinkedIn. La sección [Qué falta](#qué-falta-y-por-qué-importa-el-orden) lo
-> explica sin adornos.
+> analítica, y también el borrado de cuenta. **Falta** el despliegue y las
+> búsquedas de LinkedIn. La sección
+> [Qué falta](#qué-falta-y-por-qué-importa-el-orden) lo explica sin adornos.
 
 ---
 
@@ -133,7 +133,8 @@ No hay otra forma de crear un perfil.
 
 ## La API
 
-Cada función exporta `GET` o `POST` y usa `export const config = { maxDuration: 30 }`.
+Cada función exporta el verbo HTTP que le corresponde (`GET`, `POST`, `PUT` o
+`DELETE`) y usa `export const config = { maxDuration: 30 }`.
 
 La columna **compuerta** es lo único que hay que mirar antes de tocar un handler: es la
 que decide si el frontend cae en la pantalla de acceso (401), en el onboarding del CV
@@ -144,11 +145,12 @@ que decide si el frontend cae en la pantalla de acceso (401), en el onboarding d
 | `GET` | `/api/health` | ninguna | `{ ok, service, time }`. No toca la DB ni Apify: es el smoke test del deploy |
 | `POST` | `/api/register` | ninguna (es el alta) | `{ ok, user, profileComplete: false }`. **Nunca** escribe `profiles` |
 | `POST` | `/api/login` | ninguna | `{ ok, user, profileComplete }`. Mismo cuerpo y tiempo pareados para correo inexistente y clave mala |
-| `POST` | `/api/logout` | `requireSession` | `{ ok: true }` + cookie con `Max-Age=0`. No borra nada del servidor |
+| `POST` | `/api/logout` | ninguna | `{ ok: true }` + cookie con `Max-Age=0`. No borra nada del servidor. Es el único que **no** llama a `requireSession`: si no hay sesión, no hay cookie que borrar y tampoco hay nada que terminar |
 | `GET` | `/api/me` | `requireSession` | `{ user, profileComplete }`. **Es el que decide a dónde va el usuario**: 200 siempre, nunca 403 |
 | `GET` | `/api/profile` | **`requireProfile`** | el perfil del contrato, plano (sin envoltorio) |
-| `PUT` | `/api/profile` | `requireSession` | `{ ok, profile }`. Es **reemplazo**, no parche: lo que no viene en el body se borra |
-| `POST` | `/api/cv/parse` | `requireSession` | `{ ok, profile, kind }`. **Único** que llama a un LLM de pago |
+| `PUT` | `/api/profile` | `requireSession` | `{ ok, profileComplete, profile }`. Es **reemplazo**, no parche: lo que no viene en el body se borra |
+| `POST` | `/api/cv/parse` | `requireSession` | `{ ok, profile, kind, saved: false }`. **Único** que llama a un LLM de pago. El `saved: false` es la respuesta a la pregunta importante: el perfil NO quedó guardado hasta el `PUT` |
+| `DELETE` | `/api/account` | `requireSession` | `{ ok: true }` + cookie con `Max-Age=0`. Audita la baja **antes** de borrar, y el `delete` se lleva las 7 tablas por cascada |
 | `GET` | `/api/jobs?region=` | **`requireProfile`** | `{ region, jobs, total, _online, source, checkedAt }` |
 | `GET` | `/api/job?q=` | **`requireProfile`** | `{ job, summary }`. `summary` **puede ser `null`** |
 | `GET` | `/api/history?region=` | **`requireProfile`** | `{ region, jobs }`. Cada item con `active`/`firstSeen`/`lastSeen` y **sin `score`** |
@@ -156,9 +158,9 @@ que decide si el frontend cae en la pantalla de acceso (401), en el onboarding d
 | `GET` | `/api/cover-letter?region=&id=` | **`requireProfile`** | `{ lang, region, subject, body }` |
 | `GET` | `/api/analytics` | **`requireProfile`** | Analítica de mercado. Sin parámetros y **sin `force`**, por costo |
 | `POST` | `/api/linkedin-search` | `requireProfile` | **NO EXISTE TODAVÍA.** Cuando exista: **se factura**, no lo llames para probar |
-| `GET` | `/api/directorio` | — | **NO EXISTE TODAVÍA** |
+| `GET` | `/api/directorio` | `requireProfile` | `{ region, keyword, terms, bolsas, consultoras }`. Cada entrada con `searchUrl` + `searchKind: 'sitio' | 'google' | 'ninguno'`. No scrapea: abre búsquedas prellenadas |
 
-Cuatro cosas de esa tabla que no se deducen leyendo los handlers:
+Cinco cosas de esa tabla que no se deducen leyendo los handlers:
 
 - **`requireProfile` en los 6 endpoints de ofertas, no `requireSession`.** Sin perfil el
   matcher no tiene contra qué calcular y devolvería cero ofertas con un `200`, que es
@@ -167,6 +169,11 @@ Cuatro cosas de esa tabla que no se deducen leyendo los handlers:
 - **`401` y `403` son distintos y no es un detalle.** `401` es "no sé quién sos" y
   manda al login; `403` es "sé quién sos pero te falta el CV" y manda al onboarding.
   Confundirlos mete al usuario en un bucle de login.
+- **`DELETE /api/account` usa `requireSession`, NO `requireProfile`.** Es la única
+  diferencia con los endpoints de ofertas y es deliberada: una cuenta a medio crear
+  (correo y clave listos, CV nunca subido) tiene que poder borrarse igual. Por eso el
+  aviso de la zona de peligro está también en la compuerta del alta, y no solo en el
+  panel del CV.
 - **`_online` lo manda el backend.** El frontend lo lee para elegir el rótulo de
   arriba, y devuelve el JSON crudo: si el endpoint no lo manda, un backend sano se
   anuncia como caído.
@@ -177,6 +184,7 @@ Cuatro cosas de esa tabla que no se deducen leyendo los handlers:
 
 ```
 api/                    funciones serverless (una por endpoint), Node ESM
+  account.js            DELETE /api/account: audita y borra la cuenta entera
   lib/
     regions.js          la ÚNICA definición de regiones. Argentina.
     db.js               el único módulo que abre conexiones a Postgres
@@ -196,7 +204,13 @@ api/                    funciones serverless (una por endpoint), Node ESM
     cvParseLimit.js     el límite de parseos del LLM (tabla `cv_parses`)
     rateLimit.js        el límite de intentos de login (tabla `login_attempts`)
     text.js             helpers puros de texto, compartidos por matcher y los otros
+    directorio.js       catálogo de bolsas/consultoras + armado de URLs (paso 9)
 frontend/src/           React 18 + Vite
+  components/
+    DeleteAccountModal.jsx  la confirmación escrita del borrado
+    BorrarCuentaZona.jsx    el aviso "borrar mi cuenta" (CV panel y compuerta)
+    DirectorioPage.jsx      directorio de empleo: bolsas y consultoras de AR
+    RegionTabs.jsx          pestañas: países + secciones (analisis, directorio)
 migrations/             SQL versionado. Un archivo aplicado NO se edita nunca.
 ```
 
@@ -283,11 +297,15 @@ cookie pero sin CV dan `403`.
 
 | | Qué falta | Por qué en ese orden |
 |---|---|---|
-| 1 | **Borrar cuenta** | La app guarda datos personales derivados de tu CV (nombre, título, resumen, ubicación) y **hoy no hay forma de borrarlos**. Eso no es una feature faltante, es una carencia. Es un `delete from users` solo: las siete FK llevan `on delete cascade`. Hay que loguear la baja **antes** del delete, porque la fila desaparece y la base no guarda rastro. |
-| 2 | **CI con las 3 capas anti-cobro** | Es el prerrequisito de Apify, no un extra. Sin el guard que falla el job si `APIFY_API_TOKEN` está definido, el pipeline puede cobrar de verdad. |
-| 3 | **Deploy a Vercel** | Con el repo público alcanza con importar el proyecto y cargar las variables. |
-| 4 | **Apify / LinkedIn** | Es lo único que tapa la limitación de bolsas en inglés, porque ahí sí hay ofertas de Argentina. Cuesta plata por ejecución. |
-| 5 | **Directorio de empresas** | Links de búsqueda prellenados con las keywords del usuario. Es el único paso que agrega alcance **sin costo**, pero no muestra ofertas reales: muestra por dónde buscar. |
+| 1 | **CI con las 3 capas anti-cobro** | Es el prerrequisario de Apify, no un extra. Sin el guard que falla el job si `APIFY_API_TOKEN` está definido, el pipeline puede cobrar de verdad. |
+| 2 | **Deploy a Vercel** | **HECHO (2026-10-03)** — `VERCEL_DEPLOY.md` escrito. |
+| 3 | **Apify / LinkedIn** | **HECHO (2026-10-03)** — `api/lib/apifyLinkedin.js`, `api/linkedin-search.js`, `api/lib/apifyLimit.js`. Rate limit diario `apify_usage` + `APIFY_DAILY_LIMIT`. |
+| 4 | **Directorio de empresas** | **HECHO (2026-10-03)** — `api/lib/directorio.js`, `DirectorioPage.jsx`, 9 bolsas + 4 consultoras AR. |
+
+> **Nota de orden**: el borrado de cuenta (que era el 1 de esta lista) **ya está
+> hecho** — `DELETE /api/account`, con auditoría previa y `on delete cascade` — pero
+> se implementó fuera de la secuencia del plan. La lista de arriba mantiene el
+> orden del plan, así que sus números no son el orden en que se hizo cada cosa.
 
 ## Documentación para trabajar acá
 
@@ -295,6 +313,7 @@ cookie pero sin CV dan `403`.
 |---|---|
 | [`AGENTS.md`](./AGENTS.md) | Cómo trabajar en el repo: comandos, arquitectura, trampas del esquema, convenciones. Leelo **antes** de tocar código. |
 | [`MEMORIA.md`](./MEMORIA.md) | El contexto que no se deduce del código: el pedido original, decisiones con su porqué, hallazgos con `archivo:línea`, y las dudas abiertas. |
+| [`VERCEL_DEPLOY.md`](./VERCEL_DEPLOY.md) | Guía paso a paso para desplegar en Vercel: base de datos, variables de entorno, migraciones, smoke test, costos. |
 
 Los dos están en español y son densos a propósito: explican **por qué** cada cosa es
 como es, no qué hace. Si cambiás algo, los dos se actualizan en el mismo commit.

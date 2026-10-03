@@ -1,0 +1,34 @@
+# ============================================================================
+# FINALES DE LÍNEA
+#
+# Este repo se desarrolla en Windows (git con `core.autocrlf=true`), en Linux y en
+# macOS. Sin este archivo, git decide el final de línea por su cuenta y por lo
+# tanto por el.checkout de cada máquina, y eso rompe dos cosas concretas de este
+# proyecto. Por eso están las reglas explícitas y no una preferencia de estilo.
+# ============================================================================
+
+# Un `.sh` con CRLF no lo corre bash: falla con `$'\r': command not found` o con
+# "bad interpreter" en la línea del shebang, y ninguno de los dos errores dice
+# que la causa es el final de línea. En Windows es EL modo de falla de un
+# script, y es el que más cuesta ver. `.sh` SIEMPRE LF, en cualquier plataforma.
+*.sh text eol=lf
+
+# `migrations/*.sql` SIEMPRE LF, y esta regla es la que menos parece importante y
+# más caro sale: `scripts/migrate.js` hashea los BYTES CRUDOS del archivo y
+# aborta si el checksum difiere del que quedó registrado. Con los .sql en CRLF en
+# Windows, el sha256 es otro, `npm run migrate` responde "001_users.sql ya fue
+# aplicado pero su contenido cambió" y el mensaje apunta a una migración editada
+# que en realidad nadie tocó. Medido: `001_users.sql` da
+# `54e1df53...` con LF y `c8e43e02...` con CRLF.
+*.sql text eol=lf
+
+# El resto del texto también LF. Es lo que evita que `core.autocrlf` decida por su
+# cuenta, y en este repo no hay binarios que puedan quedar fuera: lo único que hay
+# son fuentes, SQL, Markdown y el build de Vite en `frontend/dist/`, que ya está
+# en `.gitignore`. Si algún día aparece un binario versionado, hay que agregarlo
+# acá abajo con `-text` antes que nada.
+* text=auto eol=lf
+
+# El build artifact de Vite, por si alguien lo versiona sin querer: binario, así
+# que no se toca. (Está en .gitignore igual; esta línea es la segunda red.)
+frontend/dist/** -text

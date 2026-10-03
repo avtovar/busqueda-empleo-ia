@@ -630,49 +630,17 @@ export function linkedinProfileKeywords(profile) {
   return terms.length ? `(${terms.join(' OR ')})` : '';
 }
 
-// Arma una búsqueda directa de LinkedIn, limitada a publicaciones de los últimos 30 días.
-// ↑ Devuelve la URL ya armada; los tres datos van en un objeto que
-//   URLSearchParams convierte en la parte "?clave=valor&...".
-export function linkedinSearchUrl(keywords, region) {
-  const params = new URLSearchParams({
-    keywords,
-    // ↑ Si la región no está en el mapa, mandamos vacío: LinkedIn busca en todas.
-    location: REGION_LOCATION[region] || '',
-    // ↑ f_TPR es el filtro de "publicado en los últimos N segundos" de LinkedIn
-    //   (30 días expresados en segundos). Es un parámetro propio de su sitio.
-    f_TPR: `r${30 * 24 * 60 * 60}`,
-  });
-  // ↑ URLSearchParams codifica los parámetros de forma segura (espacios, tildes, etc.).
-  return `https://www.linkedin.com/jobs/search/?${params.toString()}`;
-}
-
-// Igual que con LinkedIn: no scrapeamos el sitio de cada consultora ni sabemos
-// si tiene una sección "empleos" con una URL predecible (cada una es distinta).
-// En vez de eso armamos una búsqueda de Google acotada a su dominio (site:) con
-// las keywords del perfil + "empleos", así el link de cada consultora cumple la
-// MISMA función que el botón de LinkedIn: abrir una búsqueda ya filtrada, sin
-// necesidad de que el usuario googlee todo de nuevo.
-// ↑ Ojo con el nombre: esta función NO trae ofertas al frontend. Solo arma el
-//   link para que se abra en el navegador del usuario.
-export function consultoraSearchUrl(link, keywords) {
-  // ↑ Devuelve una búsqueda de Google acotada al sitio de la consultora.
-  let dominio = '';
-  // ↑ `let` (y no const) porque el valor se reasigna en los dos caminos del try.
-  try {
-    dominio = new URL(link).hostname.replace(/^www\./, '');
-    // ↑ Sacamos el "www." para que el site: search sea más amplio (incluye subdominios).
-  } catch {
-    // ↑ Si el link no es una URL válida, new URL() lanza un error y caemos acá:
-    //   dejamos el dominio vacío y después buscamos sin el filtro de sitio.
-    dominio = '';
-  }
-  const query = dominio
-    // ↑ `site:ejemplo.com` es un operador de Google: solo páginas de ese sitio.
-    ? `site:${dominio} (empleo OR empleos OR vacante OR "trabajá con nosotros") ${keywords}`
-    // ↑ Sin dominio no se puede usar site:, así que buscamos las keywords sueltas.
-    : `${keywords} empleos`;
-  const params = new URLSearchParams({ q: query });
-  // ↑ `q` es el parámetro de búsqueda de Google. URLSearchParams se encarga de
-  //   escapar los paréntesis y las comillas para que no rompan la URL.
-  return `https://www.google.com/search?${params.toString()}`;
-}
+// La búsqueda de LinkedIn y la de las consultoras NO viven más acá: se mudaron a
+// `api/lib/directorio.js` (donde estaban en las líneas 636 y 657). Motivo: el backend
+// las necesita para armar el catálogo del punto 11, y una URL de búsqueda que se
+// arma en dos archivos es una URL que algún día deja de coincidir consigo misma.
+// Reexportar en vez de duplicar deja a los tres consumidores (`Toolbar.jsx`,
+// `AnalysisPage.jsx`, `JobDetailModal.jsx`) sin tocar una línea. Y
+// `consultoraSearchUrl` no se reexporta porque ya no tiene consumidores en el
+// frontend: era el helper del `ConsultorasList.jsx` que se borró en el paso 3, y
+// ahora lo usa el backend.
+export { linkedinSearchUrl } from '../../api/lib/directorio.js';
+// ↑ OJO al path: dos `..` desde `frontend/src/` salen del workspace de Vite y
+//   llegan a la raíz del repo. Es el mismo import que hace `REGIONS` arriba, y por
+//   el mismo motivo: que el patrón de URL de LinkedIn tenga UNA sola definición, en
+//   `api/lib/`.
