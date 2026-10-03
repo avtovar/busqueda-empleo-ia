@@ -1,0 +1,134 @@
+-- ============================================================================
+-- 011_searches_online.sql — si la última corrida del usuario pudo hablar con
+-- las fuentes de empleo, o no.
+--
+-- UNA columna. `boolean not null default true`. Lo que hay alrededor son las
+-- razones por las que no se puede resolver de otro modo.
+--
+-- ── EL DATO QUE HACE FALTA ──────────────────────────────────────────────────
+-- La respuesta de `GET /api/jobs` incluye `_online`, y el frontend lo lee para
+-- decidir qué texto poner arriba de la lista: "Conexión exitosa con las fuentes
+-- de empleo" o "Modo demo: no se pudo contactar las fuentes en línea"
+-- (`frontend/src/App.jsx:607`). O sea que es un dato que el USUARIO ve, no una
+-- métrica interna: es la diferencia entre "no hay ofertas para vos" y "no
+-- pudimos preguntarle a nadie".
+--
+-- ── POR QUÉ NO SE PUEDE DERIVAR DE "HUBO OFERTAS" ────────────────────────────
+-- Es la tentación obvia y está MAL, con un caso real que lo demuestra: una
+-- corrida en la que las cinco bolsas respondieron bien, ninguna oferta coincidió
+-- con el perfil de este usuario, y el resultado fue CERO ofertas. Eso NO es lo
+-- mismo que "no pudimos contactar las fuentes", y el usuario se entera de la
+-- diferencia: en el primer caso la app funcionó y no le sirve nada; en el
+-- segundo hay un problema de red que se puede reportar o reintentar. Con las dos
+-- respuestas igual de vacías, el mensaje del frontend sería siempre "Modo demo",
+-- que es un diagnóstico FALSO y además le informa al usuario de algo que no
+-- pasó.
+--
+-- O sea: `_online` describe si las FUENTES contestaron, que es un hecho de la
+-- corrida, y el número de ofertas describe si algo LE SIRVE a esta persona, que
+-- es un hecho del perfil. Son preguntas distintas y por eso la respuesta a la
+-- primera no puede salir de la segunda.
+--
+-- ── POR QUÉ UNA COLUMNA Y NO "ESTO SE DEDUCE DE ALGO" ───────────────────────
+-- En el proyecto origen (`F:\busqueda_trabajo\server\index.js`) era una variable
+-- EN MEMORIA del proceso: `_online` era el resultado de la petición que se
+-- estaba respondiendo, así que estaba ahí sin esfuerzo. Acá no hay memoria entre
+-- invocaciones (ver AGENTS.md, "En serverless no hay disco ni memoria entre
+-- invocaciones"): cada request es un proceso distinto, y la corrida a la que
+-- `_online` le pertenece ocurrió en OTRA invocación, si es que ocurrió. La verdad
+-- de esa corrida está en la fila de `searches` que escribió `recordSearch`, y ahí
+-- tiene que estar.
+--
+-- ── POR QUÉ EN `searches` Y NO EN `job_history` ──────────────────────────────
+-- Porque `_online` es un dato DE LA CORRIDA, no de la oferta. `searches` es
+-- exactamente "una corrida": una fila por `recordSearch`. Además tiene que ser
+-- legible SIN ofertas: una corrida que no trajo ninguna oferta no escribe NADA
+-- en `job_history`, así que si la bandera viviera ahí, esa corrida —que es
+-- justamente la que hay que poder reportar como "funcionó pero no hubo nada para
+-- vos"— no dejaría rastro en ningún lado.
+--
+-- Y es la MISMA fila de la que ya se deriva `active` sin columna, por el método
+-- de `005_job_history.sql:143-147`: una oferta está activa si su `last_seen` es
+-- posterior a la última corrida. O sea que `searches` YA es "la última corrida
+-- del usuario" y ya se usa como tal. Agregar la bandera ahí no introduce un
+-- estado nuevo: alarga un estado que ya existía y ya está indexado.
+--
+-- ── POR QUÉ `not null` Y POR QUÉ EL DEFAULT ES `true` ───────────────────────
+-- `not null` porque un `online` nulo no significa nada: no hay un tercer estado
+-- ("no sabemos"). Si la fila existe, la corrida se hizo y hay una respuesta.
+--
+-- El default es `true` y NO `false`, y es la decisión de la que conviene ser
+-- explícito porque parece la equivocada. Ante la duda se asume que la corrida
+-- fue online porque ese es el caso normal: el endpoint llama a `recordSearch`
+-- después de traer ofertas de las fuentes gratuitas, sin excepción hasta hoy. Si
+-- se hiciera al revés (`false`), toda base que ya tiene filas en `searches` y
+-- corra esta migración tendría `online = false` en TODAS ellas, y el primer
+-- `GET /api/jobs` de cada usuario mostraría "Modo demo" sin que ninguna fuente
+-- haya fallado: un bug que se ve en pantalla y cuya causa es una palabra en una
+-- migración. (Las filas que ya había son justamente el caso que responde: el
+-- default es lo que se les aplica.) Y, si algún día hiciera falta registrar
+-- explícitamente una corrida sin haber hablado con nadie, se escribe
+-- `online = false` a mano en el INSERT, que es donde el endpoint tiene el dato.
+--
+-- ── POR QUÉ UNA MIGRACIÓN NUEVA Y NO UN EDIT DE `004_searches.sql` ───────────
+-- El runner registra `(filename, sha256 de los bytes)` en `schema_migrations` y
+-- ABORTA si un archivo ya aplicado cambia de checksum (`scripts/migrate.js:437-452`,
+-- que además dice qué hacer justo en este caso: escribir una migración nueva).
+-- Editar `004` dejaría el repo en un estado donde ninguna base que ya corrió las
+-- diez puede volver a aplicar nada, y `004` ya está aplicada en todas. Agregar
+-- `011` funciona sobre CUALQUIER base: la que tenía `004` aplicado y la que
+-- todavía no.
+--
+-- ── POR QUÉ NO ES UN CHECK NI UN ENUM ──────────────────────────────────────
+-- Por la misma razón que `searches.region` (004_searches.sql:26-30): son dos
+-- valores de un dominio cerrado, pero el dominio es de la APLICACIÓN y no del
+-- esquema. Agregar un tercer valor (por ejemplo, "online pero con la fuente
+-- grande caída") tendría que ser un `alter type ... add value`, que no se puede
+-- dejar dentro de la misma transacción que lo usa —justo la que envuelve el
+-- runner— o un `drop constraint` más otro `add constraint`. Para dos valores,
+-- `boolean` gana.
+--
+-- ── CÓMO SE LEE ─────────────────────────────────────────────────────────────
+--   select online from searches where user_id = $1 order by created_at desc limit 1
+--
+-- O sea, de la última corrida. No de "alguna vez": si la última fue offline pero
+-- la anterior fue online, la respuesta es offline, porque es lo que el usuario
+-- acaba de ver. Y si el usuario todavía no corrió ninguna búsqueda, la query no
+-- devuelve filas y el endpoint tiene que responder `false` (que es exactamente lo
+-- que ya hace `App.jsx:198` con su `useState` inicial). Eso lo resuelve el
+-- endpoint, no la base: una tabla vacía no es un estado que se pueda guardar en
+-- una fila que todavía no existe.
+-- ============================================================================
+
+alter table searches add column if not exists online boolean not null default true;
+
+-- ▲ Un solo ALTER y un solo cambio de esquema, a propósito. El `if not exists`
+--   viene del mismo motivo que el resto del archivo: correr la migración dos
+--   veces no rompe nada, así que sirve sobre una base que ya la aplicó (aunque el
+--   runner igual la saltearía por el checksum) y sobre una que está a medio
+--   camino.
+--
+-- ▲ El default NO se saca con un `alter column drop default` después. Es
+--   tentador, porque la bandera siempre se escribe explícitamente y un default
+--   permanente permitiría el error de un INSERT futuro que se olvide de mandarla
+--   y quede `true` sin querer. Se deja a propósito porque hace que el INSERT sea
+--   opcional: los dos puntos de escritura de `searches` (la corrida de ofertas y,
+--   cuando exista, el historial de la UI) escriben la columna igual, y un default
+--   que significa "todo anduvo" es el default correcto para un dato cuyo valor
+--   normal ES ese. Si algún día se ve que alguien la escribe siempre, sacarlo es
+--   una línea.
+--
+-- ▲ NO hay índice por `online`. No hay ningún acceso que la use: la pregunta es
+--   siempre "la última corrida de ESTE usuario", y eso lo resuelve
+--   `searches_user_created_at_idx` (008), que es (user_id, created_at desc). Un
+--   índice por `online` sería un índice que nadie consulta, y en una tabla que
+--   CRECE con cada búsqueda es un índice que se mantiene en cada insert para no
+--  nayudarle a nadie. Lo mismo que el resto del esquema: índice solo donde hay una
+--   query, y toda query con datos de usuario filtrando por `user_id`.
+--
+-- ▲ La columna NO lleva trigger, ni `references` a nada, ni su propia fecha. Es un
+--   dato que escribe el backend en el mismo INSERT que el resto de la corrida, por
+--   la misma razón que `job_history.expires_at` (005_job_history.sql:79-88): si el
+--   valor lo pusiera la base, la base tendría que saber qué es "online", que es un
+--   hecho de la RED y no del esquema. La fecha de la corrida ya está en
+--   `created_at` de la misma fila.

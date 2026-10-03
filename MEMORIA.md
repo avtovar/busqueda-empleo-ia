@@ -1,73 +1,74 @@
 # MEMORIA.md — Contexto de trabajo
 
 Archivo de memoria del proyecto. **No es documentación general**: para cómo está armado el
-proyecto están `AGENTS.md` (instrucciones para agentes) y el `README.md` (la documentación
-real). Acá queda lo que **no se deduce del código**: el pedido original, el diagnóstico del
-código heredado con su evidencia, las decisiones que se tomaron y lo que quedó abierto.
+proyecto está `AGENTS.md` (instrucciones para agentes), que es donde vive la **tabla de la
+API** porque **este repo no tiene `README.md`** (los dos `.md` de la raíz son `AGENTS.md` y
+`MEMORIA.md`; crear el `README.md` es el paso 12 del plan, §6). Acá queda lo que **no se
+deduce del código**: el pedido original, el diagnóstico del código heredado con su evidencia,
+las decisiones que se tomaron y lo que quedó abierto.
 
-Última actualización real: **2026-09-30** (cinco veces: andamiaje, `regions.js`, paso 4 de la
-base de datos completo — verificado contra un Postgres 16 real —, paso 5 de auth, y el
-frontend adaptado a los dos cambios de contrato: `skills` como array y regiones derivadas de
-`regions.js` — ver §2.7 y §2.8).
+Última actualización real: **2026-10-02** (el paso 8 del plan: los 6 endpoints de ofertas,
+verificado contra un Postgres real — ver §0, §2.9, §4.8 y §6). Las actualizaciones
+anteriores fueron el andamiaje, `regions.js`, el paso 4 de la base de datos completo, el
+paso 5 de auth, el paso 6 (perfil por usuario), el paso 7 (onboarding) y la pantalla de
+acceso.
 
 ---
 
 ## 0. DÓNDE QUEDAMOS — leé esto primero si volvés al proyecto
 
-**Pasos 1 a 7 de 12 HECHOS y VERIFICADOS. El paso 8 es el siguiente.**
+**Pasos 1 a 8 de 12 HECHOS y VERIFICADOS. El paso 9 es el siguiente.**
 
-El traspaso quedó el **2026-09-30**, con `npm run check` y `npm run build` en verde. Hay un
-**Postgres 16 corriendo en Docker** con las 10 migraciones aplicadas, usado solo para
+El traspaso quedó el **2026-10-02**, con `npm run check` y `npm run build` en verde. Hay un
+**Postgres 16 corriendo en Docker** con las 11 migraciones aplicadas, usado solo para
 verificar: `docker stop pg-migrate-check` para bajarlo.
 
 ### La frase que resume dónde está el proyecto
 
-**El alta en dos etapas ya se completa entera desde el navegador; las ofertas que ve el
-usuario siguen siendo de demo.** Los 6 primeros pasos eran los que no se podían ver ni usar:
-con el 7 aparece la primera pantalla de verdad (subir el CV, revisarlo, guardarlo), pero todo
-lo demás sigue igual hasta el paso 8.
+**La app muestra ofertas reales de bolsas gratuitas.** El paso 8 cerró el último hueco que
+separaba "una app que anda" de "una app que sirve para algo": `/api/jobs` devuelve el
+ranking real contra el perfil del usuario, y la caché lo hace barato (48× en la segunda
+llamada).
 
 ### Lo que falta, en orden
 
 | Paso | Qué | Por qué es el siguiente |
 |---|---|---|
-| **8** | **Ofertas**: `/api/jobs`, `/api/job`, `/api/history`, `/api/refresh`, `/api/cover-letter`, `/api/analytics` | **Es el siguiente.** El alta ya se completa desde la UI (paso 7); acá la app recién empieza a consultar bolsas de empleo reales. |
-| 9 | Directorio de Argentina (punto 11), sin scraping | |
-| 10 | Apify con límite diario por usuario (`apifyLinkedin.js`, el regex de QA) | |
+| 9 | Directorio de Argentina (punto 11), sin scraping: links de búsqueda prellenados con las keywords del usuario, **verificando cada URL** | **Es el siguiente.** Con el paso 8 hecho, es lo único que agrega alcance sin costo ni scraping. Lo escriben `linkedinSearchUrl()` y `consultoraSearchUrl()`, que ya están en `utils.js` (ver §3.7) |
+| 10 | Apify con límite diario por usuario (`apifyLinkedin.js`, el regex de QA) | **Se factura**: es el paso que mete un tercer servicio de pago. Trae `buildProfileKeywords()`, que sigue con el filtro `/(qa\|quality\|test\|automation\|sdet)/i` (ver §3.1) y el `REGION_LOCATIONS` propio que hay que reemplazar por `REGIONS` |
 | 11 | Borrar cuenta (un `DELETE`, ver decisión 9) | |
-| 12 | Docs: `README`, `.env.example`, guía de Vercel | |
+| 12 | Docs: `README`, `.env.example`, guía de Vercel | es lo que hace que la tabla de la API de `AGENTS.md` se pueda mover a un `README.md` de verdad |
 
-**Aparte, y NO es un paso del plan: faltan los formularios de login y registro** (paso 8 del
-"auth", el que hoy es solo andamiaje). El **ruteo por `profileComplete` ya existe** (es lo que
-hice en el paso 7: `App.jsx` consulta `/api/me` y abre la compuerta del CV), así que lo que
-falta es la pantalla a la que ir. Sin ella, un usuario que abra la app ve el aviso de sesión
-inválida con botón de reintento, en vez de ofertas de demo de otro.
+**Aparte, y NO es un paso del plan: el directorio de consultas de LinkedIn
+(`/api/linkedin-search`)** es el paso 10. Y lo único que quedó a medio camino **dentro** del
+paso 8 es `favorites`: la tabla existe (migración `006`) y **ningún endpoint la usa**, pero
+tampoco hay un botón de "guardar oferta" en el frontend que la consuma, así que no es un
+contrato roto: es una tabla esperando a que alguien la use.
 
-### 7 endpoints que el frontend YA llama y que NO existen
+### El único módulo del origen sin portar
 
-`/api/jobs`, `/api/job`, `/api/history`, `/api/refresh`, `/api/cover-letter`, `/api/analytics`,
-`/api/linkedin-search`. Los 7 están en `frontend/src/api.js` y responden 404. `/api/profile` ya
-existe (es lo que escribe `profiles` + `skills`, paso 6). Salvo `/api/health`, los 4 de auth y
-los 2 de `/api/cv/*`, **`api/` no tiene nada más**.
+`apifyLinkedin.js`, que vive en `F:\busqueda_trabajo\server\` y **se puede leer y copiar**.
+Los que hay que dejar atrás: `consultoras.js`, `consultorasStore.js`, `curatedJobs.js`,
+`demoData.js` (ver §3.6).
 
-### 3 módulos del origen sin portar (los que quedan)
-
-`apifyLinkedin.js`, `history.js`, `jobSources.js`, `portal.js` — todos en
-`F:\busqueda_trabajo\server\`, que **se puede leer y copiar**. Los que hay que dejar atrás:
-`consultoras.js`, `consultorasStore.js`, `curatedJobs.js`, `demoData.js` (ver §3.6).
-
-**Ya portados en el paso 6**: `analytics.js`, `coverLetter.js` y `matcher.js` están
-reescritos y parametrizados, y `cvProfile.js` **no se copió**: lo reemplaza
-`api/lib/profile.js`, que lee el perfil de la DB. Quedan 4 módulos, no 7.
+**Ya portados**: `analytics.js`, `coverLetter.js` y `matcher.js` reescritos y
+parametrizados (paso 6); `cvProfile.js` **no se copió**, lo reemplaza `api/lib/profile.js`;
+y en el paso 8 se portaron **`jobSources.js`, `portal.js` y `history.js`** a
+`api/lib/`, con `api/lib/jobs.js` como orquestador nuevo.
 
 ### Los dos avisos para cuando se retome
 
-1. **El frontend va a romper en el paso 8** al empezar a recibir datos reales: hoy consume un
-   `PROFILE` global y endpoints inexistentes. Es esperado, no es un error nuevo.
-2. **El riesgo que tenía el paso 6 está RESUELTO y verificado**: el filtro de relevancia de
-   `matcher.js` (`isQARelevant`, §3.9-A) devolvía score 0 para toda oferta de un contador o
-   una enfermera. Ya no existe; el mismo código rankea las tres profesiones. La fórmula
-   intacta y cómo se generaliza están en la skill `.opencode/skill/comparar-match/`.
+1. **El frontend NO se tocó en el paso 8**, y esa es la decisión que hace posible el paso:
+   el contrato de los 6 endpoints es EXACTAMENTE el del origen (`region`, `jobs`, `total`,
+   `_online`), así que el consumidor heredado sigue sirviendo sin una sola línea de cambio.
+   `source` y `checkedAt` son lo único agregado, y son aditivos (§2.9).
+2. **El riesgo que tenía el paso 6 sigue RESUELTO y verificado, y ahora con la preuve
+   numérica**: el filtro de relevancia de `matcher.js` (`isQARelevant`, §3.9-A) devolvía score
+   0 para toda oferta de un contador o una enfermera. Con datos reales, el mismo código
+   rankea **118 ofertas para el perfil de QA, 13 para el de Chef y 0 para el de Enfermera**
+   (§2.9, el hallazgo que parece un bug y no lo es; cifras previas al arreglo de Jobicy de
+   §4.10, que cambió el total de QA). La fórmula intacta y cómo se generaliza
+   están en la skill `.opencode/skill/comparar-match/`.
 
 > **Ojo con el nombre**: este archivo existe también en el origen (`F:\busqueda_trabajo`),
 > pero **no se copió**: aquel era andamiaje de trabajo del proyecto anterior (diagnóstico
@@ -389,6 +390,198 @@ un error en consola**, y el resto de la app anda normal. `Object.entries(array)`
 tira error: devuelve `[['0', {name, weight}], ...]`. Blindado con `Array.isArray()`, pero
 blindar no es avisar.
 
+### 2.9 El paso 8: la caché en memoria se volvió SQL, y `_online` se cacheó con ella
+
+**HECHO y VERIFICADO el 2026-10-02.** Son 12 archivos: `api/lib/jobSources.js`,
+`api/lib/portal.js`, `api/lib/searchTerms.js`, `api/lib/history.js`, `api/lib/jobs.js`, los
+6 endpoints (`api/jobs.js`, `api/job.js`, `api/history.js`, `api/refresh.js`,
+`api/cover-letter.js`, `api/analytics.js`) y `migrations/011_searches_online.sql`.
+
+Lo que hace el orquestador es `getRanked(userId, profile, { force, region, keywords })` →
+`{ regions, _online, source, checkedAt }`, y el orden interno es **caché primero, bolsas
+después** (`jobs.js:497` y `:522`): el camino de la caché son dos queries de milisegundos y el
+de las bolsas son cinco requests de red cuyo peor caso son 20 segundos.
+
+#### La caché: qué reemplaza a qué
+
+| Origen (`F:\busqueda_trabajo\server\index.js`) | Acá |
+|---|---|
+| `cache.regions` + `cache.at` (`:97`) | la fila más reciente de `searches` de ese usuario, y su `created_at` como reloj — `lastRun()` (`jobs.js:297`) |
+| las ofertas de `cache.regions` | las filas de `job_history` con `last_seen >= created_at` de esa corrida — `jobsOfLastRun()` (`jobs.js:348`) |
+| `cache.online` | la **columna `searches.online`** (migración `011`) |
+| `refreshing` (`:100`) | **nada**, y está bien: no se puede portar |
+| `lastApifyJobs` (`:110`) | el `job_history` del usuario, por `user_id`. Era el **fallback de `/api/job`**: en el origen `findById` (`index.js:224`) buscaba ahí las ofertas de la última corrida de Apify, que no estaban en `data.regions` |
+
+El TTL es `CACHE_TTL_MS` (`jobs.js:147`, 30 minutos, el mismo del origen) y se compara
+contra el `created_at` **de la base**. Es una decisión, no un descuido: el reloj de la corrida
+es el de Postgres, así que dos requests concurrentes no pueden discrepar sobre si la caché
+venció — que es exactamente lo que pasaba con `Date.now()` guardado en un objeto de módulo.
+
+**`POST /api/refresh` existe por esto y no por otra cosa.** El botón "Actualizar búsqueda"
+del frontend heredado (`App.jsx`, `handleRefresh`) lo único que hace es saltear el TTL. Sin
+`force`, ese endpoint sería un no-op: leería la caché que escribió la corrida anterior y
+devolvería lo mismo con otro `checkedAt`. Por eso `refresh.js:100` pasa `force: true`, y por
+eso su respuesta manda `source`, que tiene que ser siempre `'live'` ahí — si alguna vez
+devuelve `'cache'`, el `force` dejó de pasar y el botón es un no-op silencioso.
+
+#### `_online` es un dato DE LA CORRIDA, y por eso es una columna
+
+La migración `011` no es un lujo: es lo que hace que el caso más importante de todos sea
+barato. Sin fila de `searches`, `lastRun` devuelve `null` y cada request vuelve a pagar las
+cinco bolsas; y el peor caso es justo **`_online: false`**, donde no se puede cachear NUNCA el
+aviso de "no pudimos contactar las bolsas" y cada request del usuario paga los 20 s de red
+completos, para siempre. `recordSearch` escribe la fila de `searches` **siempre**, incluso con
+cero ofertas (`jobs.js:567-591`).
+
+Y `_online` es **siempre** el de `fetchJobs`, nunca "hubo ofertas" (`jobs.js:612-616`): son
+dos hechos distintos, y confundirlos muestra "no pudimos contactar las bolsas" a alguien a
+quien las bolsas le contestaron perfecto y no tiene nada para su perfil.
+
+#### Lo que NO se re-rankea desde la base, y por qué
+
+`recordSearch` borra los campos del match antes de serializar (`CAMPOS_DEL_MATCH`,
+`history.js:457`; la función que lo hace es `sinCamposDeMatch`, `history.js:716`, y devuelve
+una **copia**). Así que el `jsonb` no tiene `score`, y el camino de caché **re-rankea siempre**
+contra el perfil de HOY (`jobs.js:511`). El motivo es el mismo que en `/api/job`: **el perfil
+se edita, y un `score` guardado es rancio**.
+
+#### El contrato: no se tocó el frontend
+
+Es la decisión de diseño que hizo posible el paso. Los 6 endpoints devuelven **exactamente**
+el shape del origen, porque el consumidor (`frontend/src/api.js`, `App.jsx`) ya existe y no
+se toca:
+
+| Endpoint | Cuerpo | Lo único agregado |
+|---|---|---|
+| `GET /api/jobs?region=` | `{ region, jobs, total, _online }` (`index.js:250-256`) | `source`, `checkedAt` |
+| `GET /api/job?q=` | `{ job, summary }` | — |
+| `GET /api/history?region=` | `{ region, jobs }` (`index.js:363`) | — |
+| `POST /api/refresh` | `{ ok: true }` | `_online`, `at`, `total`, `source` |
+| `GET /api/cover-letter?region=&id=` | lo que devuelve `generateCoverLetter`: `{ lang, region, subject, body }` | — |
+| `GET /api/analytics` | la propuesta de interés | — |
+
+`source` y `checkedAt` son **aditivos**: no lo pide ningún consumidor, y existen para que se
+pueda **verificar que la caché funciona**, que es lo único que se puede hacer con una
+variable que no existe (no hay logs, no hay métrica, no hay profiler en una función
+serverless). Medido: **118 ofertas en 1682 ms** en la primera llamada, **las mismas 118 en
+35 ms** en la segunda (`source: 'cache'`). 48× es el número con el que se midió que el
+reemplazo de la caché en memoria por SQL funciona.
+**OJO: esas dos cifras quedaron desactualizadas por el arreglo de Jobicy (§4.10)**, que hizo
+que esa bolsa pasara de aportar 0 ofertas a aportar 50 — y el perfil de ejemplo es justo el
+titulado "QA". El total actual es mayor y **no se volvió a medir**: lo que sí sigue valiendo
+es el `source: 'cache'`, porque la caché no depende de cuántas bolsas respondan.
+
+#### Lo que NO se comió el paso: el error de `/api/history`
+
+El origen hacía `catch { sendJSON(res, 200, { region, jobs: [] }) }` (`index.js:364`). Se
+quitó, y es una de las mejores decisiones del paso: la respuesta vacía es **indistinguible** de
+"todavía no tenés historial", `App.jsx` muestra ese texto (una afirmación FALSA para alguien
+con tres meses de búsquedas), y el problema real —la tabla no está, se cayó la conexión, no
+corró una migración— queda escondido detrás de una pantalla que parece normal. Ahora el error
+sube a `withErrorHandling` y sale **500** con el detalle en el log del servidor. Un 500
+visible es infinitamente más útil que un 200 que miente.
+
+Por la misma lógica, `/api/history` **no vuelve a enriquecer**: lo que se guarda en el `jsonb`
+ya viene enriquecido, porque `lib/jobs.js` llama a `enrichJobs(jobs)` **antes** de rankear y
+de guardar (`jobs.js:529`). Y no re-rankea: el historial es la lista de lo que el usuario
+**vio**, con `active`/`firstSeen`/`lastSeen` y **sin `score`**.
+
+#### Cifras verificadas
+
+Las **dos** baterías corrieron contra un Postgres real con cookie firmada de verdad vía
+`createSessionToken`: la de quien escribió el código (68 aserciones) y la del subagente que lo
+revisó (120 aserciones). **Las dos, 0 fallos.** Más `npm run check` (**OK: 33 archivos**,
+antes 26) y `npm run build` (44 módulos).
+
+Además de las cifras de arriba: las 6 compuertas (sin cookie → **401** en los 6; con cookie y
+sin perfil → **403** + `profileComplete: false`; cookie manipulada → 401),
+`GET /api/job?q="'; drop table users; --"` → **404 y no 500**, y el aislamiento entre usuarios
+(una oferta del usuario QA da **404** para la enfermera; `?user_id=` en la URL **se ignora**).
+
+Detalles de contrato que salieron de ejercitarlo y que no se deducen del código:
+
+- **`_online` llegó `true` con Arbeitnow devolviendo HTTP 429.** Es `allSettled` en
+  `jobSources.js`: `_online` se pone **por petición**, no por fuente. Así que una bolsa que
+  agota su cuota no dice "no se pudo contactar Remotive". Y `/api/jobs` **nunca** da 500 por
+  culpa de la API de una bolsa: cada fetcher se traga su propio error.
+- **`/api/analytics` blinda `githubEvidence.projects` SIEMPRE como array** (aunque vacío),
+  porque `AnalysisPage.jsx:186` hace `skill.projects.map(...)` sin `|| []` adentro: un item
+  sin ese campo no muestra una fila vacía, **tira la excepción de render y se cae la pestaña
+  de análisis entera**. El guard va en el endpoint y no en el `.jsx` por la misma razón que
+  `_online`: el endpoint es donde se DECLARA el contrato, y el frontend heredado no se toca.
+- `candidato.skills` llega como **array** `[{ name, weight }]` con `weight` **numérico**,
+  merced al type parser de `db.js` (§2.4): es un ajuste **global** del driver, no un casteo
+  del endpoint. Perfil **sin** skills → 200 con `skills: []`.
+- **Región inexistente → 200 con la región por defecto**, nunca 400: `resolveRegion()`
+  normaliza antes de usar el valor.
+
+#### El hallazgo que parece un bug y NO lo es: 118 / 13 / 0
+
+Con perfiles de prueba contra las bolsas reales: **QA 118 ofertas, Chef 13, Enfermera 0.**
+**Cifras del paso 8, antes del arreglo de Jobicy (§4.10)**: el total de QA ya no es 118
+porque Jobicy pasó de aportar 0 a aportar 50. La conclusión de abajo no cambia, pero los
+números hay que volver a medirlos si se los quiere citar.
+
+Lo primero que cualquiera va a leer es "el matcher rompió a las profesiones no técnicas". Es al
+revés, y por eso vale la pena dejarlo escrito:
+
+- **Lo que demuestra es que el matcher rankea de verdad.** Devolvió tres números distintos
+  para tres perfiles distintos: no hay forma de que un matcher que devuelve un número
+  constante, o que matchea contra un perfil global, produzca 118/13/0. La generalización del
+  paso 6 (§3.9-bis) está **verificada con datos reales**, que es más de lo que se había
+  verificado antes (la batería del paso 6 era sintética, sin red).
+- **Lo que explica el 0 es el idioma, no el código.** Las 5 bolsas son gratuitas y
+  mayormente **en inglés y globales**. Un perfil con `skills: enfermería, cuidados` y
+  `keywords: ['salud']` genera términos de búsqueda en español, y "enfermería" no matchea una
+  descripción en inglés. El 13 del Chef es el mismo efecto a menor escala (las bolsas tienen
+  más oferta de cocina que de enfermería).
+- **El problema de fondo NO se resuelve en este paso.** Que no haya bolsas gratuitas en
+  español para el mercado argentino es un paso propio, y depende de una decisión que todavía
+  no se tomó (¿qué bolsa pública y gratuita en español se integra, o el paso 9 del directorio
+  es la respuesta?). Queda anotado en §5, duda 8.
+
+### 2.10 El filtro de retención NO está en `history.js`, y el comentario que lo decía ya está corregido
+
+Es un hallazgo del paso 8 y es el tipo de cosa que se descubre al portar, porque el código
+heredado mezclaba dos responsabilidades en una función.
+
+**El origen** (`F:\busqueda_trabajo\server\history.js:421-452`) tenía `expireOldJobs(rankedByRegion)`
+que hacía DOS cosas: filtrar de las ofertas de la búsqueda actual las ya vencidas (para que
+la respuesta no las mostrara) Y borrar las vencidas del archivo.
+
+**Acá la segunda queda entera y la primera se mudó.** `expireOldJobs(userId)`
+(`history.js:876`) **solo borra**, y su firma pasó a ser `(userId)` porque ya no recibe
+buckets. El filtro de visibilidad vive en `dentroDeRetencion(enriched, now)`
+(`jobs.js:417`), aplicado sobre la lista **enriquecida** justo antes de rankearla.
+
+**Por qué no podía quedarse adentro**, y por qué el comentario viejo era falso:
+
+1. `rankByRegion` y `matchRegion` filtran por **región** y por `score > 0`. Ninguno de los
+   dos criterios **sabe de antigüedad**. No era cierto que "el filtrado ya lo hizo
+   `rankByRegion`/`matchRegion`".
+2. Una oferta publicada hace ocho meses que la bolsa sigue listando entra al ranking; su
+   `expires_at` queda en el pasado; `recordSearch` la upserta igual (el `on conflict` no mira
+   el vencimiento); y la purga que va **en la misma transacción** la borra de nuevo.
+3. El resultado es una oferta que `/api/jobs` **muestra** y `/api/history` **nunca muestra**:
+   el mismo objeto, en dos endpoints del mismo proyecto, con resultados opuestos.
+
+Por eso el filtro está en el módulo que **arma la lista visible** y no en el que la purga.
+Y por eso `dentroDeRetencion` **reusa `expiresAtFor`** (`history.js:298`), que es el espejo en
+JS de la misma regla que aplica el SQL del upsert
+(`coalesce(pub, first_seen) + make_interval(months => 6)`): **no hay una tercera definición
+de "seis meses"**. Si algún día alguien copia esa regla a mano en un tercer lugar, el
+proyecto tiene tres verdades y dos no coinciden.
+
+**El comentario de `history.js` se corrigió, y conviene saber que se corrigió.** El bloque
+JSDoc de `expireOldJobs` (`history.js:839-874`) afirmaba la cosa falsa; ahora dice la verdad,
+explica los tres puntos de arriba y apunta a `dentroDeRetencion` en la línea 846.
+
+**Un detalle que quedó viejo y hay que arreglar cuando se toque `jobs.js`**: el comentario de
+`jobs.js:385` cita el rango `history.js:840-856`, que era donde estaba la frase falsa y que
+hoy ya no la cubre. No se corrigió porque el alcance del paso era no tocar un módulo ya
+verificado, y una referencia equivocada a un rango de líneas es mucho menos peligrosa que la
+afirmación falsa que ya no está.
+
 ---
 
 ## 3. Diagnóstico del código heredado (con evidencia)
@@ -546,7 +739,10 @@ consultoras QA, y ese **sí** está en el punto 10 para eliminar. No confundir c
   commiteado en `036f01d`) y el frontend **ya** consume `portal`, `sourceUrl`, `saved` y
   `stats` (`JobList.jsx:125`, `App.jsx:386,497-515`, `Toolbar.jsx:180`). No copiar esa sección.
 - **`DOCUMENTACION.md` del origen quedó viejo**: no menciona `APIFY_MAX_RESULTS` ni el
-  contrato nuevo de `/api/linkedin-search`. El `README.md` es la documentación real.
+  contrato nuevo de `/api/linkedin-search`. En **el origen** el `README.md` sí es la
+  documentación real — pero acá, en este repo, **no existe ningún `README.md`**: los dos `.md`
+  de la raíz son `AGENTS.md` y `MEMORIA.md`. Por eso la tabla de la API vive en
+  `AGENTS.md` y no en un `README.md` que todavía hay que escribir (es el paso 12).
 
 ### 3.9 Los dos módulos que bloquean "cualquier profesión"
 
@@ -988,6 +1184,191 @@ Un detalle del render que costó un rato y que va a volver a pasar: `renderToSta
 `autocomplete=` en minúsculas sobre el HTML renderizado da FAIL sobre un componente que está
 bien.
 
+### 4.8 Las TRES decisiones del **paso 8 de las OFERTAS** (el plan de §6, NO el de `AGENTS.md`) que contradijeron la instrucción original, y por qué la instrucción estaba mal
+
+Las tres son el mismo tipo de error: **la instrucción decía lo que quería decir, y hacerle
+caso produce un fallo silencioso.** Se dejan escritas con el razonamiento porque en el
+siguiente paso alguien va a volver a leer el mismo comentario del llamador y va a creer que
+ahí está la especificación.
+
+**1. A `recordSearch` se le pasa `ranked` (los buckets), NO `enriched` (el array plano).**
+
+La instrucción original decía: "pasale `enriched` a `recordSearch`". El motivo de fondo era
+correcto y se cumplió entero: **lo que se guarda es la OFERTA y no el MATCH**, porque
+`sinCamposDeMatch` (`history.js:716`) borra `score`, `matched`, `missed`, `requested`,
+`roles`, `inTitle` y `comment` de una **copia** antes de serializar. Los bytes que terminan en
+el `jsonb` son los mismos con cualquiera de los dos argumentos.
+
+Pero `recordSearch` espera `{ region: [ofertas] }`, no un array. `collectEntries`
+(`history.js:658`) hace `Object.entries(rankedByRegion)` y **descarta todo lo que no sea un
+array** (`history.js:663`). Con un array plano, `Object.entries` devuelve
+`[['0', oferta], ['1', oferta], ...]`: ninguna de esas "listas" es un array, el filtro las
+descarta todas, y el resultado es la fila de `searches` escrita con **cero** filas de
+`job_history` — **sin un error en ninguna parte**. El síntoma sería `/api/job` dando 404 para
+toda oferta y `/api/history` siempre vacío, dos endpoints que "andan" y no muestran nada.
+
+O sea: lo que SÍ se cumplió es lo que el comentario quiere decir; lo que NO se hizo es lo que
+el comentario pide. `jobs.js:550-565` lo dice en el lugar donde va a volver a leerse.
+
+**2. Con cero ofertas se escribe IGUAL la fila de `searches`.**
+
+`recordSearch(userId, {}, { region, keywords, online })` → 0 filas de `job_history`, 1 fila de
+`searches`. "Si no hay ofertas no se escribe historial de ofertas" se cumple exactamente: no
+queda ni una fila, ni un `key`, ni un `first_seen`. Lo que se escribe es otra cosa.
+
+La fila de `searches` **no es historial de ofertas: es el registro de que se corrió una
+búsqueda**, y es lo único que puede cachear `_online` (y los `keywords`/`region` de la
+corrida). Sin ella, `lastRun` devuelve `null` y el próximo request vuelve a pegarle a las cinco
+bolsas — y el caso que más lo necesita es **exactamente** el peor: con las bolsas caídas
+(`_online: false`) no se puede cachear NUNCA el aviso de "no pudimos contactar las bolsas", y
+cada request del usuario paga los 20 s de red completos, para siempre. Para eso existe la
+columna `online` de la migración `011`; no existe para otra cosa.
+
+Confundir "historial de ofertas" con "historial de corridas" rompe justo el caso que más las
+necesita. Es el mismo error de forma que el anterior, en el otro sentido: acá la instrucción
+("no escribas nada si no hay ofertas") era correcta en su intención, pero su lectura literal
+era falsa: lo que no hay que escribir es historial de **ofertas**.
+
+**3. El filtro de retención va en `jobs.js`, no en `history.js`.**
+
+Está desarrollado entero en §2.10, porque no es solo una decisión de este paso: es un hallazgo
+sobre el código heredado. El resumen: `expireOldJobs` de este proyecto **no filtra, solo
+borra**, y el filtro de visibilidad está en `dentroDeRetencion` (`jobs.js:417`), que reusa
+`expiresAtFor` (`history.js:298`) para no crear una tercera definición de "seis meses". La
+instrucción original ("dejá el filtrado donde estaba") habría producido una oferta que
+`/api/jobs` muestra y `/api/history` nunca muestra.
+
+**Lo que las tres tienen en común**, y es la razón de escribirla acá y no en el código: las
+tres **fallan en silencio**. Ninguna lanza una excepción, ninguna deja un warning, y en las
+tres el síntoma es "la app anda pero no muestra nada" o "muestra cosas que no debería". Es la
+misma clase de defecto que §2.4 (el `NUMERIC` como string) y que §2.5 (el status que era una
+frase): **un contrato que solo se nota cuando falta**.
+
+### 4.9 El comentario de `history.js` que mentía, y que se corrigió
+
+Por si alguien lo encuentra raro al leer el archivo: el bloque JSDoc de `expireOldJobs`
+(`history.js:839-874`) afirmaba que *"el filtrado ya lo hizo `rankByRegion`/`matchRegion`
+antes de que existiera una fila de historial"*. Es falso, por las tres razones de §2.10. **Se
+corrigió** en el paso 8: ahora dice la verdad, explica por qué el filtro no puede quedar ahí
+adentro y apunta a `dentroDeRetencion` (`jobs.js:417`) en la línea 846.
+
+El `AGENTS.md` tiene la misma regla sobre los documentos, y se aplicó: donde algo escrito
+quedó falso se corrigió o se borró, nunca se dejó. En este commit eso tocó la afirmación de
+que "el frontend todavía consume endpoints que no existen" (ya era falsa después del paso 8)
+y la de que la tabla de la API del proyecto está en un `README.md` que **no existe** (los
+únicos `.md` de la raíz son `AGENTS.md` y `MEMORIA.md`).
+
+### 4.10 Jobicy tiene un mínimo de 3 caracteres en el `tag`, y eso perdía una bolsa entera para los títulos cortos
+
+Hallazgo del paso 8, verificado empíricamente contra la API real de Jobicy (no de manual).
+
+**El `3` es un requisito del proveedor, no una decisión de diseño**, y es el único dato de
+este proyecto que depende del comportamiento de un tercero que no está en ningún esquema ni
+en ninguna librería: es el que más fácil se "limpia" por error, porque el código nuevo se ve
+correcto sin él.
+
+#### El camino completo, que es lo que hace el bug invisible
+
+`fetchJobicy` (`jobSources.js:734`) manda el término principal del perfil como `&tag=`. Ese
+término viene de `primaryTerm(terms)` (`searchTerms.js:189`), que devuelve
+`collapseTerm(terms[0])` (`searchTerms.js:191`), y `terms[0]` es el **título** del perfil
+(`searchTerms.js:158` es el primer `push`, y el JSDoc de `:95` dice que el título va primero
+siempre). O sea: **el `tag` es el título del usuario, crudo**.
+
+Y el título se puede quedar legítimamente en 1 o 2 letras: `collapseTerm` tiene un piso de
+`TERM_MIN_LENGTH = 2` (`searchTerms.js:75`, aplicado en `:251`). Ese piso está puesto a
+propósito —para que "QA" o "Go" no se descarten como término inútil— y por eso produce
+exactamente los tokens que esta bolsa rechazaba. **Un piso razonable en un módulo se vuelve
+un bug en otro.**
+
+#### Lo medido
+
+```
+400  tag=qa           (len 2)       200  tag=dev        (len 3)  jobCount=50
+400  tag=go           (len 2)       200  tag=zzz        (len 3)  jobCount=0
+400  tag=js           (len 2)       200  tag=qqqq       (len 4)  jobCount=0
+400  tag=ai           (len 2)       200  tag=xyzzy      (len 5)  jobCount=0
+400  tag=rh           (len 2)       200  tag=nurse      (len 6)  jobCount=1
+400  tag=QA           (len 2)       200  tag=enfermeria (len 10)  jobCount=0
+```
+
+**Son dos reglas distintas, y confundirlas es el error:**
+
+| Tag | Respuesta | Cómo hay que leerlo |
+|---|---|---|
+| **inexistente pero de 3+ caracteres** | `200` con `jobCount: 0` | lista vacía, **la bolsa está viva** |
+| **de 1 o 2 caracteres** | `400` | **la bolsa rechaza la consulta** |
+
+O sea: **un tag desconocido NO es un error.** El comentario anterior del código afirmaba justo
+eso —que un tag inexistente es una lista vacía tolerable— y por eso no contemplaba el caso
+corto: el razonamiento era correcto y estaba incompleto, que es la peor forma de estar
+equivocado.
+
+#### El daño eran DOS cosas, no una
+
+1. **Se perdía una de las 5 bolsas gratuitas, y para siempre.** El `catch` de `fetchJobicy`
+   hace `return { jobs: [], online: false }` (`jobSources.js:794`), así que un usuario cuyo
+   título normaliza a un token de 1-2 letras se quedaba **sin Jobicy** en cada corrida. Y no
+   es un borde: "QA", "Desarrollador Go", "Developer JS", "Analista AI" y "RH" son títulos
+   perfectamente normales. **El título "QA" es literalmente el perfil de ejemplo del
+   proyecto** (el del `FALLBACK.jobs` y el de las pruebas del paso 8), o sea que el caso
+   bloqueado era el primero que se probó.
+2. **`online: false` era una mentira.** La bolsa estaba perfectamente sana; la culpa era del
+   query que mandó la app. Y como `fetchJobs` agrega `_online` **por fuente** con
+   `Promise.allSettled` (`jobSources.js:911`, aplicado en `:929`, que solo sube el global si
+   alguna fuente vino `true`), un 400 de Jobicy **no hunde el `_online` global** —las otras
+   cuatro responden—, así que el síntoma global no se veía. Lo que estaba mal era el valor
+   **por fuente**, y el `console.warn` que acompaña al 400 (`jobSources.js:793`) se leía
+   como "no pudimos contactar las bolsas" cuando en realidad la bolsa estaba perfecta. Esa
+   es la clase de bug que el paso 8 sí detecta (§2.9: `_online` llegó `true` con Arbeitnow en
+   429) pero que acá no se veía, porque el `false` de una bolsa se diluía en el `true` de las
+   otras cuatro.
+
+#### El arreglo fue DEGRADAR, no RESISTIR
+
+Una guarda de longitud en `fetchJobicy` (`jobSources.js:766`): si el término tiene menos de
+3 caracteres **no se manda `tag`** y se pide el catálogo completo, que es lo que ya pasaba
+cuando no había término. La URL queda idéntica a `?count=50` (`jobSources.js:773`), y a
+propósito se interpola un solo `${tag}` en vez de repetir la condición: el caso "sin término"
+y el caso "término corto" tienen que producir **exactamente** la misma URL.
+
+La asimetría es la decisión: **se pierde el FILTRO, no la BOLSA** — y el filtro lo puede
+rehacer `matcher` del lado del cliente, donde un tag de 2 letras no cuesta un 400. La otra
+opción, "resistir" (buscar el tag más parecido, o ampliar a `&tag=` vacío a mano), es una
+regla nueva que además adivina lo que el usuario quería.
+
+#### Por qué NO se tocó el `catch` (y esta es la parte que hay que recordar)
+
+Deliberadamente el `catch` sigue diciendo `online: false`. Mapear el 400 a bolsa sana habría
+sido **una regla nueva y sin verificar**: un 400 en general puede ser cualquier cosa (query
+mal armada, parámetro desconocido, cuota) y no se midió que significara "estoy viva". Y una
+regla sin verificar en un valor que el frontend le muestra al usuario es peor que un `false`
+honesto. Con la guarda de 3 caracteres **el 400 de este caso desaparece**, así que la
+semántica no hace falta y no hay que inventarla.
+
+Es el mismo criterio de §4.8, aplicado al revés: allá no se respetó una instrucción porque
+iba a producir un fallo silencioso; acá **no** se mejora el `catch` aunque "parezca más
+correcto", porque sería una afirmación sin evidencia. La regla es la misma en los dos
+sentidos: **no agregar semántica que no se midió.**
+
+**Verificado**: con un perfil de título "QA" (`searchTerms` → `["QA", "automation",
+"testing", …]`, `primaryTerm` = `"QA"`, largo 2), la URL pasó de `?count=50&tag=QA` (400) a
+`https://jobicy.com/api/v2/remote-jobs?count=50`, y **Jobicy pasó de aportar 0 ofertas a
+aportar 50**, sin warning y con `online: true`. 10 aserciones, 0 fallos. `npm run check`
+sigue en **OK: 33 archivos** y `npm run build` en 44 módulos.
+
+#### Lo que este arreglo invalida de las cifras del paso 8
+
+**Las mediciones de §2.9 y de §6 quedaron desactualizadas y hay que volver a medirlas**:
+las 118 ofertas del perfil de QA ya no son 118, porque el perfil de ejemplo es justo el
+titulado "QA" y Jobicy pasó de aportar 0 a aportar 50 (antes de deduplicar). Lo mismo con el
+118 / 13 / 0 de los tres perfiles de prueba. **No se volvió a medir el total** —no se puede
+sin la base y la red—, así que lo que se hizo fue **acotar las cifras viejas** en vez de
+inventar unas nuevas: si alguien necesita el número actual, que lo mida. La conclusión de
+§2.9 (que el matcher rankea de verdad y que el 0 de Enfermera es el idioma, no el código)
+**no cambia**: la guarda de 3 caracteres es de una bolsa, no del matcher, y para el perfil de
+Enfermera lo que decide el score sigue siendo el texto en inglés.
+
 ---
 
 ## 5. Dudas que siguen abiertas
@@ -1049,6 +1430,21 @@ aparecen durante la implementación. **Ninguna bloquea el paso 1.**
    alguien "iniciá sesión" y el login tampoco funcionaría, que es peor que mostrarle la app en
    modo demo con las ofertas `FALLBACK`. El costo es que cada consumidor tiene que decidir qué
    hacer con los cuatro, y el que se paga caro es `App.jsx` cuando llega un estado nuevo.
+
+8. **Las 5 bolsas gratuitas son en inglés, y el mercado argentino no (2026-10-02, paso 8).**
+   El hallazgo medido del paso 8 es que el perfil de Enfermera da **0 ofertas** y el de Chef 13
+   (§2.9; cifras previas al arreglo de Jobicy de §4.10). No es un bug del matcher: es que
+   Remotive, Arbeitnow, Himalayas, RemoteOK y Jobicy
+   publican mayoritariamente en inglés y son globales, así que los términos que genera un
+   perfil en español no matchean una descripción en inglés. Lo que hay que decidir es **qué se
+   hace con eso**, y hay dos salidas que no se excluyen: integrar alguna bolsa gratuita y en
+   español que exista para el mercado argentino, o dejar que el **directorio del paso 9** (que
+   genera enlaces de búsqueda prellenados en las bolsas reales del país: LinkedIn Argentina,
+   Indeed Argentina, Computrabajo, Bumeran, Get on Board, Jooble — punto 11 del pedido) sea la
+   respuesta para el mercado local y las bolsas gratuitas queden para remoto/inglés. **Hoy no
+   se eligió**, y por eso no se escribió nada: el paso 9 tiene que decidir esto antes de
+   escribirse. Lo que NO se puede hacer es "arreglar" el matcher para que dé más ofertas: ya
+   rankea correctamente contra el perfil, que es lo que se necesitaba demostrar.
 
 ---
 
@@ -1156,7 +1552,7 @@ Cada paso termina con `npm run check` + `npm run build` verdes (ver `AGENTS.md`)
    ranking leía `job.postedAt`, y las 5 bolsas de `jobSources.js` normalizan a **`date`**.
    O sea que en toda la ruta gratuita comparaba `''` contra `''` y **no desempataba nada**:
    dos ofertas con el mismo score quedaban en orden de llegada. Ahora usa
-   `publishedAt(job)` (`matcher.js:264`), que prueba `date || postedAtTimestamp ||
+   `publishedAt(job)` (`matcher.js:281`), que prueba `date || postedAtTimestamp ||
    postedAt`. Mismo orden de campos que `history.js:45`.
 7. **Onboarding — HECHO y VERIFICADO de las dos mitades (2026-10-01).** La de backend:
    `/api/cv/parse` (validar MIME y tamaño, extraer texto en memoria, LLM con `LLM_API_KEY`,
@@ -1178,19 +1574,65 @@ Cada paso termina con `npm run check` + `npm run build` verdes (ver `AGENTS.md`)
    (401/400/409/429, cookie `HttpOnly` + `SameSite=Lax`, logout, `status: 0` sin backend y
    aislamiento entre dos usuarios) y 19 de render de `AuthScreen` con `react-dom/server`.
    Las tres decisiones que no se deducen del código están en **§4.7**.
-8. **Ofertas**: funciones serverless `/api/jobs`, `/api/job`, `/api/history`, `/api/refresh`,
-   `/api/cover-letter`, `/api/analytics`. Todo con `requireSession` y `withPortal`.
+8. **Ofertas — HECHO y VERIFICADO (2026-10-02).** `/api/jobs`, `/api/job`, `/api/history`,
+   `/api/refresh`, `/api/cover-letter`, `/api/analytics`, más `api/lib/jobSources.js`
+   (las 5 bolsas gratuitas), `api/lib/portal.js`, `api/lib/searchTerms.js`,
+   `api/lib/history.js` (el historial en Postgres) y **`api/lib/jobs.js`**, el orquestador
+   nuevo que no existía en el origen. También `migrations/011_searches_online.sql`.
    **OJO con el número: hay dos listas y este "paso 8" NO es el login.** La numeración de
-   `AGENTS.md` (la del "estado actual") llega hasta 8 contando la pantalla de acceso como paso
-   8, mientras que el plan de esta lista llama "paso 8" a las ofertas. Cuando un documento
-   diga "paso N", fijate en cuál de las dos listas está escribiendo; a partir de acá las dos se
-   diferencian y el número solo no dice nada.
+   `AGENTS.md` (la del "estado actual") llama "paso 8" a la pantalla de acceso, mientras que
+   el plan de esta lista llama "paso 8" a las ofertas. Cuando un documento diga "paso N",
+   fijate en cuál de las dos listas está escribiendo; a partir del 8 las dos se diferencian y
+   el número solo no dice nada.
+
+   **Lo que cambió de verdad, más allá de "existen los endpoints":**
+   - **La caché dejó de estar en memoria.** `cache` + `refreshing` + `lastApifyJobs` son
+     `let` a nivel de módulo (`index.js:97,100,110`) y en serverless no existen. Ahora es la
+     fila más reciente de `searches` más las filas de `job_history` con `last_seen >=
+     created_at`. El TTL se compara contra el `created_at` **de la base**. Tabla completa del
+     reemplazo en §2.9.
+   - **`POST /api/refresh` existe por eso**: sin `force` sería un no-op.
+   - **`searches.online`** (migración `011`) es lo que permite cachear `_online`, que es el
+     dato que el frontend lee para el rótulo de "Modo demo" (`App.jsx:607`). Sin esa columna,
+     el caso "las bolsas están caídas" pagaría 20 s de red en cada request, para siempre.
+   - **El frontend NO se tocó**: el contrato de los 6 endpoints es el del origen, y `source`
+     + `checkedAt` son aditivos.
+   - **Tres decisiones contradijeron la instrucción original** y están con su porqué en
+     **§4.8**. La más importante: a `recordSearch` se le pasa `ranked` (los buckets) y NO
+     `enriched` (el array plano), porque `collectEntries` descarta todo lo que no sea un array
+     y el historial quedaría vacío sin un solo error.
+
+   **Verificado** con `npm run check` (**OK: 33 archivos**, antes 26) y `npm run build` (44
+   módulos), y con **las dos** baterías de aserciones contra un Postgres real y cookie firmada
+   de verdad vía `createSessionToken` (la de quien escribió el código, 68, y la del subagente
+   que lo revisó, 120): **las dos, 0 fallos**. Más las cifras medidas: **118 ofertas reales en
+   1682 ms** y **las mismas 118 en 35 ms** en la segunda llamada (`source: 'cache'`), las 6
+   compuertas, `?q="'; drop table users; --"` → 404 y no 500, y el aislamiento entre usuarios
+   (una oferta del QA da 404 para la enfermera; `?user_id=` en la URL se ignora).
+
+   **Tres hallazgos que hay que leer bien**: el filtro de retención que NO está donde el
+   comentario decía (§2.10, con el bloque de `history.js` ya corregido), el 118/13/0 de
+   QA/Chef/Enfermera (§2.9), que es la **prueba** de que el matcher rankea de verdad y no un
+   bug, y el mínimo de 3 caracteres del `tag` de Jobicy (§4.10), que hacía perder una bolsa
+   entera a los títulos cortos. **Ese último es el único de los tres que además cambió el
+   código después de medido**: por eso las cifras de arriba quedaron acotadas y hay que
+   volver a medirlas si se las quiere citar.
 9. **Directorio de Argentina** (punto 11): sin scraping, links de búsqueda prellenados con las
-   keywords del usuario. **Verificar cada URL antes de meterla.**
+   keywords del usuario. **Verificar cada URL antes de meterla.** Los helpers ya existen en
+   `frontend/src/utils.js` (`linkedinSearchUrl()`, `consultoraSearchUrl()`) y `portal.js` ya
+   trae los patrones de URL de búsqueda (`PORTAL_QUERY_SEARCH`, `PORTAL_LISTING`). **Antes de
+   escribirlo hay que resolver la duda 8 de §5**: si esto es también la respuesta al problema
+   de las bolsas en inglés. Es el paso siguiente y es el único que agrega alcance sin costo.
 10. **Apify**: `/api/linkedin-search` con el token del servidor, límite diario por usuario.
+    **Se factura**: es el paso que mete un tercer servicio de pago, y el único módulo del
+    origen sin portar. Trae `buildProfileKeywords()` con el filtro `/(qa|quality|test|
+    automation|sdet)/i` (§3.1) y su `REGION_LOCATIONS` propio, que tiene que salir de
+    `REGIONS`.
 11. **Borrar cuenta**: **un** `delete from users where id = $1`, con la cascada de §4.1. **Y el
     log de auditoría va antes del `delete`**, porque la base no guarda rastro de la baja.
-12. **Docs**: `README`, `.env.example` (las 5 variables), guía de despliegue en Vercel.
+12. **Docs**: `README`, `.env.example` (las 5 variables), guía de despliegue en Vercel. Es el
+    paso que le da destino a la tabla de la API que hoy vive en `AGENTS.md` (este repo **no
+    tiene `README.md`**, y es un hecho verificado, no una omisión).
 
 ---
 

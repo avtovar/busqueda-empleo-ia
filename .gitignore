@@ -28,3 +28,10 @@ no_subir/
 *.log
 npm-debug.log*
 .DS_Store
+
+# Scripts temporales de verificación. Los que se escriben para probar algo contra la
+# base o contra las bolsas llevan el `DATABASE_URL` y el `SESSION_SECRET` INLINE,
+# que es justo la forma que la regla de secretos de `AGENTS.md` prohíbe. Además no
+# son parte del proyecto: los que valen están en `scripts/`, versionados y sin
+# secretos. Los reales se escriben en el temp del sistema, no acá.
+_tmp_*
