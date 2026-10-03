@@ -2,10 +2,10 @@
 
 Archivo de memoria del proyecto. **No es documentación general**: para cómo está armado el
 proyecto está `AGENTS.md` (instrucciones para agentes), que es donde vive la **tabla de la
-API** porque **este repo no tiene `README.md`** (los dos `.md` de la raíz son `AGENTS.md` y
-`MEMORIA.md`; crear el `README.md` es el paso 12 del plan, §6). Acá queda lo que **no se
-deduce del código**: el pedido original, el diagnóstico del código heredado con su evidencia,
-las decisiones que se tomaron y lo que quedó abierto.
+API** porque **`README.md` está orientado a quien llega de cero** (qué hace, cómo correrlo, la
+tabla de la API y qué falta); acá queda lo que **no se deduce del código**: el pedido original,
+el diagnóstico del código heredado con su evidencia, las decisiones que se tomaron y lo que
+quedó abierto.
 
 Última actualización real: **2026-10-02** (el paso 8 del plan: los 6 endpoints de ofertas,
 verificado contra un Postgres real — ver §0, §2.9, §4.8 y §6). Las actualizaciones
@@ -740,9 +740,10 @@ consultoras QA, y ese **sí** está en el punto 10 para eliminar. No confundir c
   `stats` (`JobList.jsx:125`, `App.jsx:386,497-515`, `Toolbar.jsx:180`). No copiar esa sección.
 - **`DOCUMENTACION.md` del origen quedó viejo**: no menciona `APIFY_MAX_RESULTS` ni el
   contrato nuevo de `/api/linkedin-search`. En **el origen** el `README.md` sí es la
-  documentación real — pero acá, en este repo, **no existe ningún `README.md`**: los dos `.md`
-  de la raíz son `AGENTS.md` y `MEMORIA.md`. Por eso la tabla de la API vive en
-  `AGENTS.md` y no en un `README.md` que todavía hay que escribir (es el paso 12).
+  documentación real — pero acá, en este repo, el `README.md` se escribió recién en el paso 12
+  y está **orientado a quien llega de cero**: qué hace, cómo correrlo, variables de entorno y
+  qué falta. Por eso **la tabla de la API vive en los dos**: la versión para humanos en
+  `README.md`, y la de referencia con las compuertas y las trampas en `AGENTS.md`.
 
 ### 3.9 Los dos módulos que bloquean "cualquier profesión"
 
@@ -1266,9 +1267,10 @@ adentro y apunta a `dentroDeRetencion` (`jobs.js:417`) en la línea 846.
 
 El `AGENTS.md` tiene la misma regla sobre los documentos, y se aplicó: donde algo escrito
 quedó falso se corrigió o se borró, nunca se dejó. En este commit eso tocó la afirmación de
-que "el frontend todavía consume endpoints que no existen" (ya era falsa después del paso 8)
-y la de que la tabla de la API del proyecto está en un `README.md` que **no existe** (los
-únicos `.md` de la raíz son `AGENTS.md` y `MEMORIA.md`).
+que "el frontend todavía consume endpoints que no existen" (ya era falsa después del paso 8).
+La otra, la de que la tabla de la API estaba en un `README.md` que no existía, se volvió a tocar
+al escribir el `README` del paso 12 (2026-10-02): ahora la tabla vive en los dos archivos, la
+versión para humanos en `README.md` y la de referencia en `AGENTS.md`.
 
 ### 4.10 Jobicy tiene un mínimo de 3 caracteres en el `tag`, y eso perdía una bolsa entera para los títulos cortos
 
@@ -1642,9 +1644,14 @@ Cada paso termina con `npm run check` + `npm run build` verdes (ver `AGENTS.md`)
     `REGIONS`.
 11. **Borrar cuenta**: **un** `delete from users where id = $1`, con la cascada de §4.1. **Y el
     log de auditoría va antes del `delete`**, porque la base no guarda rastro de la baja.
-12. **Docs**: `README`, `.env.example` (las 5 variables), guía de despliegue en Vercel. Es el
-    paso que le da destino a la tabla de la API que hoy vive en `AGENTS.md` (este repo **no
-    tiene `README.md`**, y es un hecho verificado, no una omisión).
+12. **Docs - PARCIAL (2026-10-02).** El `README.md` está **escrito y publicado** (repo público
+    `avtovar/busqueda-empleo-ia`, commit `b6fe7e7`): qué hace, cómo correrlo, variables de
+    entorno, tabla de la API, arquitectura, **la limitación del producto** (las 5 bolsas son en
+    inglés: Enfermera 0 ofertas, QA 118) y las dos advertencias de costo (LLM y Apify).
+    `.env.example` ya tenía las variables, y son **13**, no las 5 que decía el plan.
+    **Falta la guía de despliegue en Vercel**, que es la mitad que sí importa para el destino:
+    crear el proyecto, `DATABASE_URL` apuntando al **pooler**, `SESSION_SECRET`, correr
+    `npm run migrate` desde fuera, y qué es opcional. Ese es el pedazo pendiente de este paso.
 
 ---
 

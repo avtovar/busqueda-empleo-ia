@@ -475,12 +475,14 @@ Dos cosas sueltas que no se deducen del código:
 - ESM (`"type": "module"`). 2 espacios, comillas simples, punto y coma, funciones flecha.
 - En el origen `dotenv` era la única dependencia de runtime. Con auth y DB ya no aplica:
   bcrypt/argon2, driver de Postgres y el parser de CV entran justificadas.
-- Si agregás o cambiás un endpoint, actualizá **la tabla de la API de más abajo en este
-  archivo**. Ojo: **este proyecto NO tiene `README.md`.** Los dos archivos `.md` de la raíz
-  son `AGENTS.md` y `MEMORIA.md`, y nada más (verificado con `Get-ChildItem *.md`). El
-  `README.md` es un paso del plan que sigue pendiente (el 12, junto con la guía de
-  despliegue), así que **la tabla de la API vive acá** hasta que ese archivo exista. Lo que
-  sí es cierto del `README.md` del ORIGEN es que `DOCUMENTACION.md` quedó viejo (no menciona
+- Si agregás o cambiás un endpoint, actualizá **la tabla de la API de dos lugares**: la de más
+  abajo en este archivo (que es la de referencia, con compuertas y trampas) y la de `README.md`
+  (que es la de arranque, más corta). **Los dos se desincronizan solos**, así que ninguno de
+  los dos alcanza: si tocás uno, tocás el otro.
+  Ojo: **esta tabla NO se borra aunque exista el `README.md`.** El `README.md` está orientado a
+  quien llega de cero —qué hace, cómo correrlo, qué variables hay— y **no** lleva el porqué de
+  las decisiones, así que la versión de referencia sigue teniendo que vivir acá.
+  Lo que sí es cierto del `README.md` del ORIGEN es que `DOCUMENTACION.md` quedó viejo (no menciona
   `APIFY_MAX_RESULTS` ni el contrato nuevo de `/api/linkedin-search`): no lo tomes como
   fuente de verdad.
 - **Actualizá `AGENTS.md` y `MEMORIA.md` en el mismo commit en que cambies algo.** Es una
