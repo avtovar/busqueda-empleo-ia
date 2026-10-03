@@ -156,11 +156,13 @@ Apify y aplica todo lo de arriba:
   puede ejercitar de verdad es un **OpenAI-compatible falso**: `llm.js` arma la URL como
   `${LLM_BASE_URL}/chat/completions`, así que alcanza con levantar un `node:http` que
   responda un `chat.completion` y apuntar `LLM_BASE_URL` a `http://127.0.0.1:<puerto>/v1`.
-- **`LLM_BASE_URL` se lee AL IMPORTAR el módulo**, no en cada llamada. Si un script importa
-  `api/cv/parse.js` (o cualquier cosa que importe `llm.js`) antes de poner la variable, el
-  `fetch` sale a `api.openai.com` de verdad. **Poné `process.env.LLM_BASE_URL` antes del
-  primer `import()`**, y recordá que en Windows un `import()` de ruta absoluta necesita
-  `pathToFileURL`.
+- **`LLM_BASE_URL` se lee en cada llamada, NO al importar.** `llmConfig()` (`llm.js:200`) es la
+  que arma la configuración y se invoca desde el camino de la request (`llm.js:515`), así que
+  la variable se puede poner en cualquier momento **antes de la llamada**. Esto es lo que hace
+  testeable el módulo contra un proveedor falso, y es al revés de lo que decía esta sección
+  antes: importás los handlers, ponés `process.env.LLM_BASE_URL` y recién ahí llamás. Lo mismo
+  para `LLM_API_KEY`: la validación es perezosa y deliberada, y `llm.js:183` lo dice. Recordá
+  que en Windows un `import()` de ruta absoluta necesita `pathToFileURL`.
 - Escribí la URL del proveedor en un servidor local y **no** la mandes vacía desde otro
   proceso: es la misma trampa que está arriba, con el mismo modo de falla.
 

@@ -1099,10 +1099,22 @@ Lo que **no** se deduce del código y costó decidir:
   no hay una clave de LLM de la que protegerse. En producción nadie lo apaga.
 
 Verificado: `npm run check` (22 archivos), `npm run build` (42 módulos), los 10 endpoints de
-prueba con un **OpenAI-compatible falso** en `127.0.0.1` (`LLM_BASE_URL` antes de importar nada,
-porque `llm.js` lee la variable **al importar el módulo**) y el PDF real de 58 863 bytes. 46
+prueba con un **OpenAI-compatible falso** en `127.0.0.1` (poniendo `LLM_BASE_URL` antes de
+importar nada, aunque **no hacía falta**: `llmConfig()` —`llm.js:200`, invocada desde `:515`— lee
+la variable **en cada llamada**, así que también habría funcionado setearla después del import) y
+el PDF real de 58 863 bytes. 46
 aserciones, todas verdes, y el contador de llamadas al LLM falso coincide **exactamente** con la
 cantidad de 200 — que es la prueba de que el límite corta antes de la llamada que se paga.
+**Corregido después** (2026-10-02): esta sección decía que `llm.js` leía la variable **al
+importar el módulo**, y era falso. `llmConfig()` (`llm.js:200`) es una **función** que se invoca
+desde el camino de la request (`llm.js:515`) y no hay ninguna constante a nivel de módulo que
+guarde la config, así que la variable se lee **en cada llamada**. El propio JSDoc de `llm.js:183`
+decía lo correcto ("perezoso, y NO al importar") y la doc lo contradecía. Verificado con un
+OpenAI-compatible falso en `127.0.0.1`: importando `llm.js` **sin** `LLM_BASE_URL` ni
+`LLM_API_KEY` (no explota), poniendo las dos **después** del import, la petición sale a
+`127.0.0.1:<puerto>/v1/chat/completions` y el cuerpo no menciona `openai.com`; y apuntar a otro
+puerto falla, que es la prueba de que la config no está cacheada. El orden de importación no
+importa; lo que importa es que la variable esté puesta **antes de llamar**.
 
 **Lo que este límite NO protege**: un adversario que se registra cuentas nuevas. El registro es
 abierto y no hay verificación de correo, así que acota el gasto de UNA cuenta, no el total. Es
