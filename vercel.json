@@ -4,14 +4,30 @@
   "buildCommand": "npm run build",
   "outputDirectory": "frontend/dist",
   "functions": {
-    "api/**/*.js": {
-      "maxDuration": 30
-    }
+    "api/auth/[...slug].js": { "maxDuration": 30 },
+    "api/jobs/[...slug].js": { "maxDuration": 30 },
+    "api/profile/[...slug].js": { "maxDuration": 60 },
+    "api/analytics/[...slug].js": { "maxDuration": 30 },
+    "api/search/[...slug].js": { "maxDuration": 60 },
+    "api/health.js": { "maxDuration": 30 }
   },
   "rewrites": [
-    {
-      "source": "/((?!api/).*)",
-      "destination": "/index.html"
-    }
+    { "source": "/api/register", "destination": "/api/auth/register" },
+    { "source": "/api/login", "destination": "/api/auth/login" },
+    { "source": "/api/logout", "destination": "/api/auth/logout" },
+    { "source": "/api/me", "destination": "/api/auth/me" },
+    { "source": "/api/account", "destination": "/api/auth/account" },
+    { "source": "/api/jobs", "destination": "/api/jobs/jobs" },
+    { "source": "/api/job", "destination": "/api/jobs/job" },
+    { "source": "/api/history", "destination": "/api/jobs/history" },
+    { "source": "/api/refresh", "destination": "/api/jobs/refresh" },
+    { "source": "/api/profile", "destination": "/api/profile/profile" },
+    { "source": "/api/cv/parse", "destination": "/api/profile/cv/parse" },
+    { "source": "/api/analytics", "destination": "/api/analytics/analytics" },
+    { "source": "/api/cover-letter", "destination": "/api/analytics/cover-letter" },
+    { "source": "/api/directorio", "destination": "/api/search/directorio" },
+    { "source": "/api/linkedin-search", "destination": "/api/search/linkedin-search" },
+    { "source": "/api/health", "destination": "/api/health" },
+    { "source": "/((?!api/).*)", "destination": "/index.html" }
   ]
 }

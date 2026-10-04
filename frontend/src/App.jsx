@@ -53,7 +53,7 @@ import { linkedinProfileKeywords, timeAgo } from './utils.js';
 // ↑ linkedinProfileKeywords arma la query de la búsqueda de LinkedIn;
 //   timeAgo convierte el `checkedAt` del backend en "actualizado hace X".
 
-import { regionLabel } from '../../api/lib/regions.js';
+import { regionLabel } from '../../lib/regions.js';
 // ↑ El nombre visible de cada región, de la configuración compartida con el
 //   backend: la UI no tiene su propia lista de países (ver la nota de más abajo).
 

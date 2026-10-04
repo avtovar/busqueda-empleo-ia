@@ -1,0 +1,831 @@
+openapi: 3.0.3
+info:
+  title: busqueda-empleo-ia API
+  version: 1.0.0
+  description: |
+    API para búsqueda de empleo multiusuario, cualquier profesión, alcance inicial Argentina.
+    Frontend: React 18 + Vite. Backend: funciones serverless Node ESM en Vercel.
+    Base de datos: Postgres (Neon/Supabase) con migraciones versionadas.
+  contact:
+    name: Ali Valentin Tovar Morales
+    email: avtovar@gmail.com
+servers:
+  - url: https://{project}.vercel.app
+    description: Producción (Vercel)
+    variables:
+      project:
+        default: busqueda-empleo-ia
+        description: Nombre del proyecto en Vercel
+  - url: http://localhost:3000
+    description: Desarrollo local (npx vercel dev)
+
+# ──────────────────────────────────────────────────────────────────────────────
+# COMPONENTES REUTILIZABLES
+# ──────────────────────────────────────────────────────────────────────────────
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: session
+      description: Cookie HttpOnly firmada con HMAC-SHA256 (v1.<user_id>.<exp>.<signature>)
+
+  schemas:
+    # ── Errores ──────────────────────────────────────────────────────────────
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          example: "Necesitás iniciar sesión."
+        status:
+          type: integer
+          example: 401
+        retryAfter:
+          type: integer
+          description: Segundos hasta reintentar (solo en 429)
+          example: 300
+
+    # ── Usuario ──────────────────────────────────────────────────────────────
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        created_at:
+          type: string
+          format: date-time
+
+    # ── Perfil (contrato de la API, no la fila cruda de la BD) ───────────────
+    Profile:
+      type: object
+      properties:
+        fullName:
+          type: string
+          nullable: true
+          example: "María González"
+        title:
+          type: string
+          nullable: true
+          example: "Contadora pública"
+        yearsExperience:
+          type: number
+          nullable: true
+          example: 5.5
+        summary:
+          type: string
+          nullable: true
+        photo:
+          type: string
+          format: uri
+          nullable: true
+        location:
+          type: string
+          nullable: true
+          example: "Córdoba, Argentina"
+        skills:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+                example: "Excel avanzado"
+              weight:
+                type: number
+                minimum: 0
+                maximum: 1
+                example: 0.95
+          example: [{"name": "Excel avanzado", "weight": 0.95}, {"name": "Conciliaciones", "weight": 0.9}]
+        keywords:
+          type: array
+          items:
+            type: string
+          example: ["contador", "impuestos", "auditoría"]
+        marketSkills:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              has:
+                type: boolean
+              aliases:
+                type: array
+                items:
+                  type: string
+        projects:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              description:
+                type: string
+              url:
+                type: string
+                format: uri
+
+    # ── Regiones ─────────────────────────────────────────────────────────────
+    Region:
+      type: object
+      properties:
+        key:
+          type: string
+          example: "argentina"
+        label:
+          type: string
+          example: "Argentina"
+        lang:
+          type: string
+          example: "es"
+        linkedinLocation:
+          type: string
+          example: "Argentina"
+
+    # ── Oferta de empleo ─────────────────────────────────────────────────────
+    Job:
+      type: object
+      properties:
+        id:
+          type: string
+          example: "remotive-12345"
+        source:
+          type: string
+          example: "Remotive"
+        portal:
+          type: string
+          example: "Remotive"
+        sourceUrl:
+          type: string
+          format: uri
+        title:
+          type: string
+        company:
+          type: string
+        location:
+          type: string
+        regionGuess:
+          type: string
+        applyUrl:
+          type: string
+          format: uri
+        description:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        salary:
+          type: string
+        date:
+          type: string
+          format: date-time
+        score:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: Porcentaje de match contra el perfil
+
+    # ── Respuesta /api/jobs ──────────────────────────────────────────────────
+    JobsResponse:
+      type: object
+      properties:
+        region:
+          type: string
+        jobs:
+          type: array
+          items:
+            $ref: '#/components/schemas/Job'
+        total:
+          type: integer
+        _online:
+          type: boolean
+          description: true si al menos una bolsa respondió OK
+        source:
+          type: string
+          enum: [cache, live]
+        checkedAt:
+          type: string
+          format: date-time
+
+    # ── Respuesta /api/directorio ────────────────────────────────────────────
+    DirectorioEntry:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        site:
+          type: string
+        note:
+          type: string
+        searchUrl:
+          type: string
+          format: uri
+        searchKind:
+          type: string
+          enum: [sitio, google, ninguno]
+          description: |
+            sitio = la URL ya viene filtrada por el portal;
+            google = búsqueda Google site:;
+            ninguno = no hay búsqueda prellenada, abre la home
+
+    DirectorioResponse:
+      type: object
+      properties:
+        region:
+          type: string
+        keyword:
+          type: string
+        terms:
+          type: array
+          items:
+            type: string
+        bolsas:
+          type: array
+          items:
+            $ref: '#/components/schemas/DirectorioEntry'
+        consultoras:
+          type: array
+          items:
+            $ref: '#/components/schemas/DirectorioEntry'
+
+    # ── Respuesta /api/linkedin-search ───────────────────────────────────────
+    LinkedInSearchResponse:
+      type: object
+      properties:
+        region:
+          type: string
+        jobs:
+          type: array
+          items:
+            $ref: '#/components/schemas/Job'
+        total:
+          type: integer
+        regions:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              $ref: '#/components/schemas/Job'
+        stats:
+          type: object
+          properties:
+            recibidos:
+              type: integer
+            guardados:
+              type: integer
+            duplicados:
+              type: integer
+            sinLink:
+              type: integer
+            viejas:
+              type: integer
+            sinMatch:
+              type: integer
+            otrasRegiones:
+              type: integer
+        _online:
+          type: boolean
+        source:
+          type: string
+        checkedAt:
+          type: string
+          format: date-time
+        resultLimit:
+          type: integer
+        pages:
+          type: integer
+        searchUrl:
+          type: string
+          format: uri
+
+    # ── Respuesta /api/analytics ─────────────────────────────────────────────
+    AnalyticsResponse:
+      type: object
+      properties:
+        generatedAt:
+          type: string
+          format: date-time
+        candidato:
+          type: object
+          properties:
+            fullName:
+              type: string
+            title:
+              type: string
+            yearsExperience:
+              type: number
+            skills:
+              type: array
+              items:
+                $ref: '#/components/schemas/Profile/properties/skills/items'
+        matchProjection:
+          type: object
+        skillStats:
+          type: array
+        strongSkills:
+          type: array
+        missingSkills:
+          type: array
+        englishPct:
+          type: number
+        recommendations:
+          type: array
+        githubEvidence:
+          type: array
+
+    # ── Respuesta /api/cover-letter ──────────────────────────────────────────
+    CoverLetterResponse:
+      type: object
+      properties:
+        lang:
+          type: string
+        region:
+          type: string
+        subject:
+          type: string
+        body:
+          type: string
+
+    # ── Auth responses ───────────────────────────────────────────────────────
+    AuthResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        user:
+          $ref: '#/components/schemas/User'
+        profileComplete:
+          type: boolean
+
+    MeResponse:
+      type: object
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+        profileComplete:
+          type: boolean
+
+# ──────────────────────────────────────────────────────────────────────────────
+# PATHS (ENDPOINTS)
+# ──────────────────────────────────────────────────────────────────────────────
+paths:
+  /api/health:
+    get:
+      summary: Smoke test — no toca DB ni Apify
+      security: []  # público
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  service:
+                    type: string
+                  time:
+                    type: string
+                    format: date-time
+
+  /api/register:
+    post:
+      summary: Alta de usuario (correo + clave)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  minLength: 8
+      responses:
+        '201':
+          description: Usuario creado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          description: Body inválido (email malformed, password < 8)
+        '409':
+          description: Email ya registrado
+
+  /api/login:
+    post:
+      summary: Login (correo + clave)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+      responses:
+        '200':
+          description: Login OK — setea cookie HttpOnly
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Credenciales inválidas (mismo cuerpo/timing que email inexistente)
+        '429':
+          description: Rate limit excedido (10 por par email+IP / 15 min, 30 por IP / 15 min)
+
+  /api/logout:
+    post:
+      summary: Cierra sesión (borra cookie)
+      security: []  # no requiere sesión válida
+      responses:
+        '200':
+          description: Cookie con Max-Age=0
+
+  /api/me:
+    get:
+      summary: Estado de sesión y si tiene perfil
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Siempre 200 (decide a dónde va el frontend)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeResponse'
+        '401':
+          description: Sin cookie válida
+
+  /api/profile:
+    get:
+      summary: Perfil completo del usuario
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Perfil del contrato
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Profile'
+        '401':
+          description: Sin sesión
+        '403':
+          description: 'Sesión OK pero sin perfil (profileComplete: false)'
+
+    put:
+      summary: Reemplaza perfil completo (no es PATCH)
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Profile'
+      responses:
+        '200':
+          description: Perfil guardado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  profileComplete:
+                    type: boolean
+                  profile:
+                    $ref: '#/components/schemas/Profile'
+        '401':
+          description: Sin sesión
+
+  /api/cv/parse:
+    post:
+      summary: Sube CV (PDF/DOCX), extrae texto y llama LLM para armar perfil
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [cv]
+              properties:
+                cv:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Perfil extraído (NO guardado aún)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  profile:
+                    $ref: '#/components/schemas/Profile'
+                  kind:
+                    type: string
+                    enum: [pdf, docx]
+                  saved:
+                    type: boolean
+                    enum: [false]
+        '400':
+          description: Sin archivo o archivo inválido
+        '413':
+          description: Archivo > 5 MB
+        '415':
+          description: Tipo MIME no soportado (solo application/pdf, application/vnd.openxmlformats-officedocument.wordprocessingml.document)
+        '429':
+          description: Límite de parseos por usuario/hora (CV_PARSE_LIMIT)
+        '504':
+          description: Timeout llamando al LLM
+
+  /api/account:
+    delete:
+      summary: Borra cuenta y TODOS sus datos (cascada) + auditoría
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Cuenta borrada + cookie Max-Age=0
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+        '401':
+          description: Sin sesión válida
+
+  /api/jobs:
+    get:
+      summary: Ofertas rankeadas contra el perfil (con caché 30 min)
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: region
+          in: query
+          schema:
+            type: string
+            default: argentina
+          description: Clave de región (argentina)
+      responses:
+        '200':
+          description: Lista de ofertas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobsResponse'
+        '401':
+          description: Sin sesión
+        '403':
+          description: 'Sin perfil (profileComplete: false)'
+
+  /api/job:
+    get:
+      summary: Detalle de una oferta + resumen de empresa
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+          description: id o query de la oferta
+        - name: id
+          in: query
+          schema:
+            type: string
+          description: Alias de q
+      responses:
+        '200':
+          description: Oferta + resumen (puede ser null)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  job:
+                    $ref: '#/components/schemas/Job'
+                  summary:
+                    type: object
+                    nullable: true
+        '401':
+          description: Sin sesión
+        '403':
+          description: Sin perfil
+        '404':
+          description: No encontrada (incluye inyección SQL)
+
+  /api/history:
+    get:
+      summary: Historial de ofertas vistas (últimos 6 meses)
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: region
+          in: query
+          schema:
+            type: string
+            default: argentina
+      responses:
+        '200':
+          description: Historial con active/firstSeen/lastSeen (sin score)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  region:
+                    type: string
+                  jobs:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Job'
+        '401':
+          description: Sin sesión
+        '403':
+          description: Sin perfil
+
+  /api/refresh:
+    post:
+      summary: Fuerza nueva corrida ignorando caché (POST /api/refresh)
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Nueva corrida completada
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  _online:
+                    type: boolean
+                  at:
+                    type: string
+                    format: date-time
+                  total:
+                    type: integer
+                  source:
+                    type: string
+                    enum: [live]
+        '401':
+          description: Sin sesión
+        '403':
+          description: Sin perfil
+
+  /api/cover-letter:
+    get:
+      summary: Genera carta de presentación para una oferta
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: region
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Carta (subject + body)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CoverLetterResponse'
+        '401':
+          description: Sin sesión
+        '403':
+          description: Sin perfil
+
+  /api/analytics:
+    get:
+      summary: Propuesta de Interés (analítica de mercado vs perfil)
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Analítica completa
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalyticsResponse'
+        '401':
+          description: Sin sesión
+        '403':
+          description: Sin perfil
+
+  /api/linkedin-search:
+    post:
+      summary: Busca en LinkedIn real vía Apify (SE FACTURA por ejecución)
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [region]
+              properties:
+                region:
+                  type: string
+                  default: argentina
+                limit:
+                  type: integer
+                  minimum: 20
+                  maximum: 1000
+                  default: 200
+      responses:
+        '200':
+          description: Resultados de LinkedIn + stats
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LinkedInSearchResponse'
+        '401':
+          description: Sin sesión
+        '403':
+          description: Sin perfil
+        '402':
+          description: Apify sin saldo (Payment Required)
+        '429':
+          description: Límite diario excedido (APIFY_DAILY_LIMIT)
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+        '502':
+          description: Error de Apify (token inválido, timeout, etc.)
+        '503':
+          description: APIFY_API_TOKEN no configurado en el servidor
+        '504':
+          description: Timeout (>320s)
+
+  /api/directorio:
+    get:
+      summary: Catálogo de bolsas y consultoras de Argentina con búsquedas prellenadas
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: region
+          in: query
+          schema:
+            type: string
+            default: argentina
+      responses:
+        '200':
+          description: Directorio con searchKind honesto por entrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DirectorioResponse'
+        '401':
+          description: Sin sesión
+        '403':
+          description: Sin perfil
+
+# ──────────────────────────────────────────────────────────────────────────────
+# SECURITY GLOBAL (aplica a todos salvo los que tengan security: [])
+# ──────────────────────────────────────────────────────────────────────────────
+security:
+  - cookieAuth: []

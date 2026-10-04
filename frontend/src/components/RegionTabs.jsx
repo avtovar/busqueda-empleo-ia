@@ -2,7 +2,7 @@
 // que la lista de países de la UI es exactamente la que el backend soporta.
 // Importante: NO incluye "analisis" porque no es un país: es una sección especial
 // que se agrega como botón aparte, más abajo.
-import { REGIONS, regionLabel } from '../../../api/lib/regions.js';
+import { REGIONS, regionLabel } from '../../../lib/regions.js';
 // ↑ La MISMA configuración que usa el matcher para decidir en qué región cae una
 //   oferta. Antes eran 7 países escritos a mano acá; agregar un país obligaba a
 //   editar esta lista, la de `utils.js`, la de `App.jsx` y las del backend (los 5

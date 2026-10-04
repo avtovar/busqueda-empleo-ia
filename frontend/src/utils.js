@@ -15,7 +15,7 @@
 //   el punto 9 del pedido pide exactamente una fuente de verdad, que es lo que
 //   `api/lib/regions.js` es. Es JS puro, sin dependencias de Node, así que el
 //   bundler lo puede leer tal cual.
-import { REGIONS } from '../../api/lib/regions.js';
+import { REGIONS } from '../../lib/regions.js';
 // ↑ OJO al path: `utils.js` vive en `frontend/src/`, así que `../..` sale del
 //   workspace de Vite y llega a la raíz del repo, que es donde está `api/`.
 //   El build de Vite resuelve imports fuera del root sin problema, pero si algún
@@ -639,7 +639,7 @@ export function linkedinProfileKeywords(profile) {
 // `consultoraSearchUrl` no se reexporta porque ya no tiene consumidores en el
 // frontend: era el helper del `ConsultorasList.jsx` que se borró en el paso 3, y
 // ahora lo usa el backend.
-export { linkedinSearchUrl } from '../../api/lib/directorio.js';
+export { linkedinSearchUrl } from '../../lib/directorio.js';
 // ↑ OJO al path: dos `..` desde `frontend/src/` salen del workspace de Vite y
 //   llegan a la raíz del repo. Es el mismo import que hace `REGIONS` arriba, y por
 //   el mismo motivo: que el patrón de URL de LinkedIn tenga UNA sola definición, en

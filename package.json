@@ -1,6 +1,6 @@
 {
   "name": "busqueda-empleo-ia",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Buscador de empleo multiusuario con perfil por CV, match de skills y propuesta de interes. Argentina.",
   "type": "module",
   "private": true,

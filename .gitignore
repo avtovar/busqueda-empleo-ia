@@ -35,3 +35,5 @@ npm-debug.log*
 # son parte del proyecto: los que valen están en `scripts/`, versionados y sin
 # secretos. Los reales se escriben en el temp del sistema, no acá.
 _tmp_*
+
+.vercel
