@@ -18,8 +18,8 @@ import {
   bucketOf,
   getRanked,
   resolveRegion,
-  DEFAULT_REGION,
 } from '../../lib/jobs.js';
+import { DEFAULT_REGION } from '../../lib/regions.js';
 import { findJobById, getHistoryForRegion } from '../../lib/history.js';
 import { computeMatch } from '../../lib/matcher.js';
 import { summarize } from '../../lib/coverLetter.js';

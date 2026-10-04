@@ -25,7 +25,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { closePool, withClient } from '../api/lib/db.js';
+import { closePool, withClient } from '../lib/db.js';
 
 // La raíz del repo: el lugar donde vive package.json. Todo se resuelve desde acá
 // para que el script funcione sin importar desde dónde se lo ejecute.

@@ -54,7 +54,7 @@ export const FALLBACK = {
 //   log ni aviso porque el objetivo es que la app siga andando igual.
 export async function loadProfile() {
   try {
-    const res = await fetch('/api/profile');
+    const res = await fetch('/api/profile/profile');
     // ↑ res.ok vale true en respuestas 2xx (o sea, "el server respondió bien").
     if (res.ok) return await res.json();
     // ↑ Si el server responde bien, devolvemos el JSON ya parseado.
@@ -71,7 +71,7 @@ export async function loadProfile() {
 //   desde el backend; el frontend solo la muestra y la pagina.
 export async function loadJobs(region) {
   try {
-    const res = await fetch(`/api/jobs?region=${region}`);
+    const res = await fetch(`/api/jobs/jobs?region=${region}`);
     // ↑ Backticks (``) permiten meter variables dentro del string de la URL.
     if (res.ok) return await res.json();
   } catch {}
@@ -88,7 +88,7 @@ export async function loadJobs(region) {
 //   usuario: inventar ofertas "vistas" sería mostrar información falsa.
 export async function loadHistory(region) {
   try {
-    const res = await fetch(`/api/history?region=${region}`);
+    const res = await fetch(`/api/jobs/history?region=${region}`);
     if (res.ok) return await res.json();
   } catch {}
   return { region, jobs: [] };
@@ -104,7 +104,7 @@ export async function loadHistory(region) {
 //   etiqueta de "recién actualizado", que es peor que avisar que no se pudo.
 export async function refreshJobs() {
   try {
-    const res = await fetch('/api/refresh', { method: 'POST' });
+    const res = await fetch('/api/jobs/refresh', { method: 'POST' });
     // ↑ El POST sin body le dice al backend "borra la caché y buscá de nuevo".
     return res.ok ? await res.json().catch(() => ({})) : { ok: false };
   } catch {
@@ -128,7 +128,7 @@ export async function searchLinkedInJobs(region, limit) {
   let response;
   // ↑ `let` porque se asigna adentro del try y se usa después del catch.
   try {
-    response = await fetch('/api/linkedin-search', {
+    response = await fetch('/api/search/linkedin-search', {
       method: 'POST',
       // ↑ method: 'POST' = enviamos datos (una región), no solo pedimos.
       headers: { 'Content-Type': 'application/json' },
@@ -154,7 +154,7 @@ export async function searchLinkedInJobs(region, limit) {
 // Trae el detalle enriquecido de una oferta (/api/job?q=ID) con resumen de empresa y skills.
 export async function loadJobDetail(id) {
   try {
-    const res = await fetch(`/api/job?q=${encodeURIComponent(id)}`);
+    const res = await fetch(`/api/jobs/job?q=${encodeURIComponent(id)}`);
     // ↑ encodeURIComponent limpia el id por si trae caracteres especiales.
     if (res.ok) return await res.json();
   } catch {}
@@ -167,19 +167,19 @@ export async function loadJobDetail(id) {
 //   idioma) y el id de la oferta (para escribir sobre ese puesto).
 export async function loadCoverLetter(region, id) {
   try {
-    const res = await fetch(`/api/cover-letter?region=${region}&id=${encodeURIComponent(id)}`);
+    const res = await fetch(`/api/analytics/cover-letter?region=${region}&id=${encodeURIComponent(id)}`);
     if (res.ok) return await res.json();
   } catch {}
   return null;
   // ↑ Sin carta no se abre el modal: el frontend simplemente no muestra nada.
 }
 
-// Trae el agregado de analítica del mercado (/api/analytics): KPIs, brechas, etc.
+// Trae el agregado de analítica del mercado (/api/analytics/analytics): KPIs, brechas, etc.
 export async function loadAnalytics() {
   // ↑ Devuelve null si falla (no hay demo de analítica): es un agregado que
   //   tendría que inventarse con datos falsos, así que la página lo oculta.
   try {
-    const res = await fetch('/api/analytics');
+    const res = await fetch('/api/analytics/analytics');
     if (res.ok) return await res.json();
   } catch {}
   return null;
@@ -198,7 +198,7 @@ export async function loadDirectorio(region = 'argentina') {
   //   pasar nada. Cuando se agreguen más países, el parámetro pasa a ser obligatorio
   //   y este default se saca: acá es cómodo, no un atajo para no pasar `region`.
   try {
-    const res = await fetch(`/api/directorio?region=${region}`);
+    const res = await fetch(`/api/search/directorio?region=${region}`);
     if (res.ok) return await res.json();
   } catch {}
   return null;
@@ -347,7 +347,7 @@ function apiError(status, data, fallbackMessage) {
  */
 export async function loadSession() {
   try {
-    const res = await fetch('/api/me');
+    const res = await fetch('/api/auth/me');
     if (res.ok) {
       const data = await res.json().catch(() => ({}));
       return {
@@ -520,7 +520,7 @@ export async function saveProfile(profile) {
 export async function register({ email, password }) {
   let response;
   try {
-    response = await fetch('/api/register', {
+    response = await fetch('/api/auth/register', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password }),
@@ -561,7 +561,7 @@ export async function register({ email, password }) {
 export async function login({ email, password }) {
   let response;
   try {
-    response = await fetch('/api/login', {
+    response = await fetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password }),
@@ -601,7 +601,7 @@ export async function login({ email, password }) {
  */
 export async function logout() {
   try {
-    const response = await fetch('/api/logout', { method: 'POST' });
+    const response = await fetch('/api/auth/logout', { method: 'POST' });
     return response.ok;
   } catch {
     return false;
@@ -641,7 +641,7 @@ export async function logout() {
 export async function deleteAccount() {
   let response;
   try {
-    response = await fetch('/api/account', {
+    response = await fetch('/api/auth/account', {
       method: 'DELETE',
       signal: timeoutSignal(DELETE_TIMEOUT_MS),
       // ↑ Sin body, y sin headers: el endpoint no lee ninguno de los dos y el
