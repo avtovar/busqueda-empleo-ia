@@ -39,6 +39,11 @@ import BorrarCuentaZona from './BorrarCuentaZona.jsx';
 // ↑ La zona "borrar mi cuenta" del paso 11, compartida con `CvPanel` para que las
 //   dos pantallas den acceso a la misma acción con el mismo texto.
 
+import PrivacyNotice from './PrivacyNotice.jsx';
+// ↑ Aviso de privacidad y consentimiento (Ley 25.326). Se muestra ANTES de subir
+//   el CV por primera vez (cuando no hay perfil). El usuario debe leerlo y dar
+//   su consentimiento para que el texto del CV viaje al LLM.
+
 // ── El tope de tamaño, repetido acá a propósito ───────────────────────────────
 // Es el MISMO número que `MAX_CV_BYTES` de `api/lib/cvText.js`. No se importa, y
 // no es descuido: ese módulo es de Node (usa `Buffer`, streams y carga
@@ -190,6 +195,10 @@ export default function CvOnboarding({ profile, onSaved, onCancel, onDeleteAccou
   //   guardando" muestran textos distintos en el botón y un usuario que espera 25
   //   segundos por el LLM necesita saber cuál de las dos cosas está esperando.
 
+  const [mostrarPrivacidad, setMostrarPrivacidad] = useState(!profile && !esEditor);
+  // ↑ Solo se muestra en la compuerta del alta (sin perfil, no editor).
+  //   El usuario debe aceptar para poder subir el CV.
+
   const [archivo, setArchivo] = useState(null);
   const [borrador, setBorrador] = useState(() => toDraft(profile));
   // ↑ `toDraft(profile)` como función perezosa de useState: corre SOLO al
@@ -230,6 +239,8 @@ export default function CvOnboarding({ profile, onSaved, onCancel, onDeleteAccou
 
   // ── Elegir el archivo ───────────────────────────────────────────────────────
   function elegirArchivo(evento) {
+    if (mostrarPrivacidad) return; // No permitir elegir archivo sin consentimiento
+    
     const elegido = evento.target.files?.[0] || null;
     setArchivo(elegido);
     setError(null);
@@ -340,7 +351,7 @@ export default function CvOnboarding({ profile, onSaved, onCancel, onDeleteAccou
     }));
   }
 
-  constAgregarSkill = () => setBorrador((actual) => ({
+  const agregarSkill = () => setBorrador((actual) => ({
     ...actual,
     // ↑ Peso 1 = "la tengo". Es el default del backend (`DEFAULT_SKILL_WEIGHT`),
     //   y la razón de que no sea 0 es que 0 significa "no la tengo", que es lo
@@ -742,7 +753,21 @@ export default function CvOnboarding({ profile, onSaved, onCancel, onDeleteAccou
         <div className="modal-content cv-modal" role="dialog" aria-modal="true" aria-labelledby="cv-modal-title">
           <button className="modal-close" onClick={onCancel} aria-label="Cerrar">&times;</button>
           <h3 id="cv-modal-title">Editar tu perfil</h3>
-          {cuerpo}
+{cuerpo}
+
+      {mostrarPrivacidad && (
+        <PrivacyNotice
+          onAccept={() => setMostrarPrivacidad(false)}
+          onDecline={() => {
+            // Si declina, no puede subir CV; la app sigue usable en modo demo
+            setMostrarPrivacidad(false);
+            if (inputArchivo.current) inputArchivo.current.value = '';
+            setArchivo(null);
+          }}
+          show={true}
+          providerName={import.meta.env.VITE_LLM_PROVIDER_NAME || 'el proveedor configurado (OpenAI-compatible)'}
+        />
+      )}
         </div>
       </div>
     );

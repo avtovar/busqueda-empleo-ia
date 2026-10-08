@@ -35,11 +35,23 @@ import {
 import { query, withTransaction } from '../../lib/db.js';
 import { HttpError, ConfigError } from '../../lib/http.js';
 import { assertLoginAllowed, clearFailedLogins, recordFailedLogin } from '../../lib/rateLimit.js';
+import { checkGlobalDailyLimit, recordGlobalUsage } from '../../lib/globalLimit.js';
 
 export const config = { maxDuration: 30 };
 
 const MAX_BODY_BYTES = 64 * 1024;
 const INVALID_CREDENTIALS = 'El correo o la clave no son correctos.';
+
+// Código de invitación para cerrar el registro (opcional, para demo/portfolio)
+function requireSignupCode(body) {
+  const requiredCode = process.env.SIGNUP_CODE;
+  if (!requiredCode) return null; // Sin código configurado = registro abierto
+  const provided = body?.signupCode;
+  if (provided !== requiredCode) {
+    return new HttpError(403, 'Código de invitación inválido o requerido.', { signupCodeRequired: true });
+  }
+  return null;
+}
 
 function getRoute(req) {
   const url = new URL(req.url);
@@ -95,6 +107,12 @@ async function handleRegister(req) {
     return errorResponse('El cuerpo de la petición tiene que ser un objeto JSON.', 400);
   }
 
+  // Verificar código de invitación si está configurado
+  const codeError = requireSignupCode(body);
+  if (codeError) {
+    return errorResponse(codeError.message, codeError.status, codeError.extra);
+  }
+
   const { email, password } = readCredentials(body);
   const passwordHash = await hashPassword(password);
 
@@ -111,6 +129,9 @@ async function handleRegister(req) {
     }
     throw err;
   }
+
+  // Registrar uso global (para tope de gasto)
+  await recordGlobalUsage('signup');
 
   const sessionCookie = createSessionCookie(user.id);
   return jsonResponse(

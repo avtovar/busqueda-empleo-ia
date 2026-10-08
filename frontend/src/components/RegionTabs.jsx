@@ -49,21 +49,21 @@ export default function RegionTabs({ current, onSelect }) {
 
   return (
     <div>
-      {/* Fila 1: los países. Cada uno tiene su bandera y su clave de región. */}
-      <div className="region-tabs">
+      {/* Fila 1: los países. Cada uno tiene su bandera y su clave de región.
+          ARIA tablist pattern para accesibilidad (WCAG 1.3.1, 2.4.3). */}
+      <div role="tablist" className="region-tabs" aria-label="Regiones">
         {TABS.map((t) => (
-          // ↑ .map() convierte el arreglo TABS en una lista de botones.
+          // ↑ .map() convierte el arreglo TABS en una lista de pestañas.
           <button
             key={t.region}
-            // ↑ key única para que React sepa diferenciar cada botón de la lista.
+            role="tab"
+            aria-selected={current === t.region}
+            aria-controls={`panel-${t.region}`}
+            id={`tab-${t.region}`}
             className={`region-tab${current === t.region ? ' active' : ''}`}
-            // ↑ Template literal: si esta región es la actual, le agrega la clase
-            //   'active' (que la pinta con el degradado) vía CSS.
             onClick={() => onSelect(t.region)}
-            // ↑ onClick llama a la función del padre pasándole la región elegida.
           >
             {t.label}
-            {/* ↑ Muestra la etiqueta (bandera + nombre) guardada en TABS. */}
           </button>
         ))}
       </div>
@@ -75,25 +75,27 @@ export default function RegionTabs({ current, onSelect }) {
           a la lista de arriba las haría desaparecer en el próximo cambio de
           `regions.js`, que es el mecanismo que hace que la fila de arriba no pueda
           quedar vieja sola. */}
-      <div className="region-tabs-secondary">
+      <div role="tablist" className="region-tabs-secondary" aria-label="Secciones">
         <button
+          role="tab"
+          aria-selected={current === 'analisis'}
+          aria-controls="panel-analisis"
+          id="tab-analisis"
           className={`region-tab analisis-tab${current === 'analisis' ? ' active' : ''}`}
           onClick={() => onSelect('analisis')}
         >
           📊 Propuesta de Interés
         </button>
         <button
+          role="tab"
+          aria-selected={current === 'directorio'}
+          aria-controls="panel-directorio"
+          id="tab-directorio"
           className={`region-tab directorio-tab${current === 'directorio' ? ' active' : ''}`}
           onClick={() => onSelect('directorio')}
         >
           🔗 Directorio de empleo
         </button>
-        {/* ↑ Mismo patrón exacto que el de arriba, con su propio modificador de
-            clase (`.directorio-tab`) aunque hoy NO tenga regla de CSS: el
-            modificador es el lugar donde colgaría un ajuste visual de esta pestaña
-            cuando haga falta, y hoy no hace falta ninguno porque hereda todo de
-            `.region-tab`. La que sí lo tenía era `.consultoras-tab`, y se borró con
-            el tracker de outreach en el paso 3. */}
       </div>
     </div>
   );

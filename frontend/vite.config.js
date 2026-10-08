@@ -1,5 +1,5 @@
 import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react';
+import react from '@vitejs/plugin-react-swc';
 
 // ↑ Archivo de CONFIGURACIÓN de Vite: el bundler (la herramienta que junta el
 // ↑ código en archivos que el navegador puede cargar). Acá no hay lógica de la app,
@@ -23,10 +23,9 @@ import react from '@vitejs/plugin-react';
 export default defineConfig({
   // ↑ plugins: los complementos que amplían a Vite.
   plugins: [
-    // ↑ @vitejs/plugin-react: sin esto Vite NO entendería los archivos .jsx.
-    // ↑ Hace dos cosas: transforma el JSX a JavaScript plano (que el navegador sí
-    // ↑ entiende) y agrega el Fast Refresh, que recarga la página conservando el
-    // ↑ estado de los componentes al guardar un cambio.
+    // ↑ @vitejs/plugin-react-swc: usa SWC (Speedy Web Compiler) en vez de esbuild
+    // ↑ para transformar JSX. SWC es más rápido y tiene mejor soporte para JSX
+    // ↑ complejo, evitando los bugs de parsing de esbuild con condicionales complejos.
     react(),
   ],
   // ↑ Todo lo de acá abajo es del SERVIDOR DE DESARROLLO (`npm run dev`).

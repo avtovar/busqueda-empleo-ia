@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 // ↑ useState para el feedback visual "✓ Copiada" del botón de copiar.
+// useRef para el foco, useEffect para Escape.
 
 // Modal que muestra la carta de presentación generada por el backend.
 // Recibe por props `letter` (la carta con subject y body) y `onClose` (cerrar).
@@ -9,8 +10,24 @@ export default function LetterModal({ letter, onClose }) {
   const [copied, setCopied] = useState(false);
   // ↑ True por 1.5 segundos cuando se copia la carta (cambia el texto del botón).
 
-  if (!letter) return null;
-  // ↑ Guardia: sin carta no hay modal que mostrar.
+  const closeRef = useRef(null);
+  // ↑ Para atrapar el foco dentro del modal (focus trap).
+
+  // Escape cierra el modal. Va en document porque el foco puede estar en cualquier
+  // elemento dentro del modal (botón copiar, link descargar) y el usuario de
+  // teclado necesita salir sin tabular hacia afuera.
+  useEffect(() => {
+    if (!letter) return;
+    const handleKey = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', handleKey);
+    return () => document.removeEventListener('keydown', handleKey);
+  }, [onClose, letter]);
+
+  // Foco al abrir: va al botón de cerrar como elemento seguro.
+  useEffect(() => {
+    if (!letter) return;
+    closeRef.current?.focus();
+  }, [letter]);
 
   // Copia subject + cuerpo al portapapeles con la API moderna de clipboard.
   function copy() {
@@ -26,13 +43,17 @@ export default function LetterModal({ letter, onClose }) {
   const href = `data:text/plain;charset=utf-8,${encodeURIComponent(letter.subject + '\n\n' + letter.body)}`;
   // ↑ encodeURIComponent convierte la carta a una URL segura (espacios, tildes, etc.).
 
+  if (!letter) return null;
+  // ↑ Guardia: sin carta no hay modal que mostrar.
+
   return (
     <div className="modal" onClick={(e) => e.target === e.currentTarget && onClose()}>
       {/* ↑ Click en el fondo oscuro (target = currentTarget) cierra el modal. */}
-      <div className="modal-content letter">
-        {/* ↑ Clase `letter` extra: el CSS le da más ancho a este modal. */}
-        <button className="modal-close" onClick={onClose} aria-label="Cerrar">&times;</button>
-        <h3>{letter.subject}</h3>
+      <div className="modal-content letter" role="dialog" aria-modal="true" aria-labelledby="letter-title" ref={closeRef}>
+        {/* ↑ Clase `letter` extra: el CSS le da más ancho a este modal.
+            role="dialog" + aria-modal + aria-labelledby: accesibilidad WCAG. */}
+        <button ref={closeRef} className="modal-close" onClick={onClose} aria-label="Cerrar">&times;</button>
+        <h3 id="letter-title">{letter.subject}</h3>
         <div className="letter-body">{letter.body}</div>
         {/* ↑ El body se muestra tal cual, respetando saltos de línea por white-space. */}
         <div className="letter-actions">

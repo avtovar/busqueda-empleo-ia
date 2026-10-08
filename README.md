@@ -1,5 +1,9 @@
 # busqueda-empleo-ia
 
+[![CI](https://github.com/avtovar/busqueda-empleo-ia/actions/workflows/ci.yml/badge.svg)](https://github.com/avtovar/busqueda-empleo-ia/actions/workflows/ci.yml)
+[![Node](https://img.shields.io/badge/Node-%3E%3D20-green)](https://nodejs.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 Buscador de empleo para **Argentina**: subís tu CV, la app arma tu perfil, busca ofertas
 en bolsas reales, calcula un **match** entre tu perfil y cada oferta, y te arma una
 **propuesta de interés** con las skills que te faltan y las que el mercado pide.
@@ -8,9 +12,8 @@ Multiusuario, sin backend con estado: funciones serverless + Postgres.
 
 > **Estado: en construcción.** Es un proyecto activo, no un producto terminado.
 > Está hecho el camino completo de alta → CV → perfil → ofertas → match → carta →
-> analítica, y también el borrado de cuenta. **Falta** el despliegue y las
-> búsquedas de LinkedIn. La sección
-> [Qué falta](#qué-falta-y-por-qué-importa-el-orden) lo explica sin adornos.
+> analítica, y también el borrado de cuenta. **Falta** el despliegue a Vercel.
+> La sección [Qué falta](#qué-falta-y-por-qué-importa-el-orden) lo explica sin adornos.
 
 ---
 
@@ -120,7 +123,7 @@ No hay otra forma de crear un perfil.
 | `CV_PARSE_RETENTION_HOURS` | `24` | Cuánto se guarda el registro de un parseo antes de purgarlo. |
 | `LLM_MODEL` | el del proveedor | Solo si tu proveedor tiene más de un modelo. |
 
-### Para LinkedIn (cuesta plata, todavía no implementado)
+### Para LinkedIn (cuesta plata, **implementado**)
 
 | Variable | Default | Para qué |
 |---|---|---|
@@ -129,7 +132,7 @@ No hay otra forma de crear un perfil.
 | `APIFY_DAILY_LIMIT` | `3` | Búsquedas por usuario por día. |
 
 > **Ojo grave:** cada búsqueda de LinkedIn **ejecuta un actor de Apify y se cobra**.
-> Por eso el endpoint **no existe todavía** en el código. Mirá la sección de abajo.
+> El endpoint `/api/linkedin-search` **EXISTE** (implementado 2026-10-03) con rate limit diario `apify_usage` + `APIFY_DAILY_LIMIT`. **Nunca lo llames para probar** — usá `/api/health`, `/api/jobs`, `/api/directorio`, `/api/analytics` que son gratis.
 
 ## La API
 
@@ -157,7 +160,7 @@ que decide si el frontend cae en la pantalla de acceso (401), en el onboarding d
 | `POST` | `/api/refresh` | **`requireProfile`** | `{ ok: true, _online, at, total, source }`. Sin `force` sería un no-op |
 | `GET` | `/api/cover-letter?region=&id=` | **`requireProfile`** | `{ lang, region, subject, body }` |
 | `GET` | `/api/analytics` | **`requireProfile`** | Analítica de mercado. Sin parámetros y **sin `force`**, por costo |
-| `POST` | `/api/linkedin-search` | `requireProfile` | **NO EXISTE TODAVÍA.** Cuando exista: **se factura**, no lo llames para probar |
+| `POST` | `/api/linkedin-search` | `requireProfile` | Búsqueda LinkedIn real vía Apify. **Se factura**. Rate limit diario `apify_usage` + `APIFY_DAILY_LIMIT`. `buildProfileKeywords` generalizado (sin regex QA). |
 | `GET` | `/api/directorio` | `requireProfile` | `{ region, keyword, terms, bolsas, consultoras }`. Cada entrada con `searchUrl` + `searchKind: 'sitio' | 'google' | 'ninguno'`. No scrapea: abre búsquedas prellenadas |
 
 Cinco cosas de esa tabla que no se deducen leyendo los handlers:
@@ -280,8 +283,8 @@ No hay linter, ni formateador, ni typecheck, ni framework de tests. **No los
 agregues a propósito:** la verificación es manual y son tres pasos.
 
 ```bash
-npm run check    # node --check sobre cada .js de api/ y scripts/  → "OK: 33 archivos"
-npm run build    # vite build → frontend/dist, y valida los .jsx    → 44 módulos
+npm run check    # node --check sobre cada .js de api/ y scripts/  → "OK: 8 archivos"
+npm run build    # vite build → frontend/dist, y valida los .jsx    → 50 módulos
 curl -fsS localhost:3000/api/health
 ```
 
@@ -297,15 +300,18 @@ cookie pero sin CV dan `403`.
 
 | | Qué falta | Por qué en ese orden |
 |---|---|---|
-| 1 | **CI con las 3 capas anti-cobro** | Es el prerrequisario de Apify, no un extra. Sin el guard que falla el job si `APIFY_API_TOKEN` está definido, el pipeline puede cobrar de verdad. |
-| 2 | **Deploy a Vercel** | **HECHO (2026-10-03)** — `VERCEL_DEPLOY.md` escrito. |
-| 3 | **Apify / LinkedIn** | **HECHO (2026-10-03)** — `api/lib/apifyLinkedin.js`, `api/linkedin-search.js`, `api/lib/apifyLimit.js`. Rate limit diario `apify_usage` + `APIFY_DAILY_LIMIT`. |
-| 4 | **Directorio de empresas** | **HECHO (2026-10-03)** — `api/lib/directorio.js`, `DirectorioPage.jsx`, 9 bolsas + 4 consultoras AR. |
+| 1 | **CI con guard anti-cobro + secret scanning** | **HECHO (2026-10-08)** — `.github/workflows/ci.yml` con 3 capas anti-cobro Apify. |
+| 2 | **Control de registro (SIGNUP_CODE) + tope global de gasto** | **HECHO (2026-10-08)** — `SIGNUP_CODE` opcional + `global_usage` table + limits. |
+| 3 | **Tests automatizados + CI pipeline** | **EN PROGRESO** — tests con node:test, LLM falso, Postgres service. |
+| 4 | **Deploy a Vercel** | `VERCEL_DEPLOY.md` escrito. Requiere CI verde y tope de gasto en proveedores. |
+| 5 | **Aviso de privacidad + consentimiento (Ley 25.326)** | Requerido para CV → LLM (transferencia internacional de datos personales). |
+| 6 | **Accesibilidad WCAG 2.2 AA** | Color-only (match verde/rojo), modales, status messages, tabs, lang en ofertas EN. |
+| 7 | **Keywords bilingües (es/en) + sinónimos** | Mejora cobertura: hoy 0 ofertas para Enfermera porque bolsas son en inglés. |
+| 8 | **Caché compartida de bolsas + límite a "Actualizar"** | Advisory lock para que 2 requests simultáneas no peguen 2× a las 5 bolsas. |
+| 9 | **Favoritos (endpoint + frontend)** | Tabla `favorites` existe (migración 006), falta endpoint y botón UI. |
+| 10 | **Limpieza MEMORIA.md (ADRs + "dónde quedamos" corto)** | 120 KB mezcla estado, decisiones, hallazgos, bitácora. Partir en docs/decisiones/. |
 
-> **Nota de orden**: el borrado de cuenta (que era el 1 de esta lista) **ya está
-> hecho** — `DELETE /api/account`, con auditoría previa y `on delete cascade` — pero
-> se implementó fuera de la secuencia del plan. La lista de arriba mantiene el
-> orden del plan, así que sus números no son el orden en que se hizo cada cosa.
+> **Nota**: el borrado de cuenta (`DELETE /api/account` con auditoría y cascada) se implementó fuera de esta secuencia. Los pasos 1 y 2 de esta lista son **nuevos** (octubre 2026) y eran prerrequisitos para abrir el registro público.
 
 ## Documentación para trabajar acá
 

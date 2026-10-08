@@ -668,3 +668,39 @@ export async function deleteAccount() {
   }
   return data;
 }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// FAVORITOS (paso 11)
+// ═════════════════════════════════════════════════════════════════════════════
+// La tabla `favorites` existe (migración 006) y el frontend ya consume el campo
+// `saved`. Estos endpoints cierran la funcionalidad: listar, guardar/quitar (toggle).
+
+/**
+ * Trae la lista de ofertas guardadas (`GET /api/favorites`).
+ * @returns {Promise<{favorites: Array<{...job, savedAt: string}>}>}
+ */
+export async function loadFavorites() {
+  try {
+    const res = await fetch('/api/favorites');
+    if (res.ok) return await res.json();
+  } catch {}
+  return { favorites: [] };
+}
+
+/**
+ * Guarda o quita una oferta de favoritos (`POST /api/favorites`).
+ * Body: { key: string, job: object }
+ * @returns {Promise<{ok: true, saved: boolean}>}
+ */
+export async function toggleFavorite(key, job) {
+  const response = await fetch('/api/favorites', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ key, job }),
+  });
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw apiError(response.status, data, 'No se pudo guardar/quitar la oferta.');
+  }
+  return response.json();
+}

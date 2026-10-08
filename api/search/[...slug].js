@@ -16,6 +16,7 @@ import { assertApifyAllowed } from '../../lib/apifyLimit.js';
 import { isValidRegion, DEFAULT_REGION } from '../../lib/regions.js';
 import { loadProfileSkills, normalizeProfile } from '../../lib/profile.js';
 import { HttpError } from '../../lib/auth-fetch.js';
+import { checkGlobalDailyLimit, recordGlobalUsage } from '../../lib/globalLimit.js';
 
 export const config = { maxDuration: 60 };
 
@@ -81,6 +82,7 @@ async function handleDirectorio(req, user, profile) {
 
 async function handleLinkedInSearch(req, user, profile) {
   await assertApifyAllowed(user.id);
+  await checkGlobalDailyLimit('apify');
 
   const body = await req.json();
   const region = isValidRegion(body?.region) ? body.region : DEFAULT_REGION;
@@ -90,6 +92,9 @@ async function handleLinkedInSearch(req, user, profile) {
   const contractProfile = np(profile, await lps(user.id));
 
   const result = await searchLinkedInWithApify(contractProfile, region, { limit });
+
+  await recordGlobalUsage('apify');
+
   return jsonResponse(result);
 }
 

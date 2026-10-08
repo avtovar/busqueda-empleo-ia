@@ -1,7 +1,15 @@
-import { useState } from 'react';
-// ↑ Hook useState: la paginación necesita memoria interna (en qué página estamos).
+// ============================================================================
+// Componente de la lista de ofertas de UNA región.
+// Qué muestra: la barra de orden, un botón para restaurar lo que se quitó, las
+// tarjetas de oferta (paginadas de a 10) y los botones de página anterior/siguiente.
+// Qué NO hace: no pide datos. Los recibe ya cargados por props desde App.jsx.
+// ============================================================================
 
-import { matchClass, daysAgo, formatDisplayDate, portalInfo, jobDestination } from '../utils.js';
+import { useState, useEffect } from 'react';
+// ↑ Hook useState: la paginación necesita memoria interna (en qué página estamos).
+// useEffect para cargar favoritos al montar.
+
+import { matchClass, matchLabel, daysAgo, formatDisplayDate, portalInfo, jobDestination } from '../utils.js';
 // ↑ Helpers: matchClass (color del % de match), daysAgo (días desde la última vista),
 //   formatDisplayDate (fecha legible) y los dos de procedencia nueva —portalInfo
 //   (nombre + icono + clase del portal) y jobDestination (el mejor link que haya:
@@ -12,13 +20,11 @@ import LanguageBadge from './LanguageBadge.jsx';
 //   porque la misma etiqueta se dibuja también en el modal de detalle: si el
 //   <span> estuviera duplicado en los dos archivos, cualquier cambio futuro
 //   (un texto, un estilo) se olvidaría de actualizar uno de los dos.
-
-// ============================================================================
-// Componente de la lista de ofertas de UNA región.
-// Qué muestra: la barra de orden, un botón para restaurar lo que se quitó, las
-// tarjetas de oferta (paginadas de a 10) y los botones de página anterior/siguiente.
-// Qué NO hace: no pide datos. Los recibe ya cargados por props desde App.jsx.
-// ============================================================================
+import { toggleFavorite, loadFavorites } from '../api.js';
+// ↑ Acciones de favoritos contra el backend (nuevas en paso 11).
+import Pagination from './Pagination.jsx';
+// ↑ Componente de paginación separado para evitar problemas de parsing con esbuild
+//   al usar condicionales complejos en el nivel superior del JSX.
 
 const PAGE_SIZE = 10;
 // ↑ Cantidad de ofertas que se muestran por página (constante fija, se corta la lista).
@@ -66,27 +72,7 @@ function loadDismissedJobs() {
   }
 }
 
-// Normaliza la fecha de publicación de una oferta a milisegundos (timestamp).
-// ↑ Vuelve en un solo tipo de dato: con esto el .sort() de más abajo puede
-//   comparar fechas sin importar si vinieron como texto, segundos o milisegundos.
-function publicationTimestamp(job) {
-  const raw = job.date;
-  if (!raw) return null;
-  // ↑ Sin fecha no hay timestamp: se devuelve null y el orden pone estas ofertas
-  //   al final, sin romper.
-  const value = String(raw).trim();
-  if (/^\d{10,13}$/.test(value)) {
-    const numeric = Number(value);
-    return numeric < 1e12 ? numeric * 1000 : numeric;
-    // ↑ Regex de 10 o 13 dígitos = un timestamp: 10 dígitos son SEGUNDOS y 13
-    //   son MILISEGUNDOS. 1e12 es un billón, así que si el número es menor hay
-    //   que multiplicar por 1000 para pasarlo a milisegundos.
-  }
-  // ↑ Si no es un número, se lo dejamos a new Date() ("hace 3 días", "14/03/26"...).
-  const timestamp = new Date(value).getTime();
-  return Number.isNaN(timestamp) ? null : timestamp;
-  // ↑ .getTime() da los milisegundos; si es NaN, la fecha no era válida.
-}
+
 
 // Sub-componente local: el "badge" que indica si una oferta del historial sigue
 // activa o ya no aparece. No se exporta porque solo lo usa JobList.
@@ -117,6 +103,8 @@ function HistoryBadge({ job }) {
     </span>
   );
 }
+// ↑ El badge de historial SÓLO tiene sentido en la vista de
+//   historial: en la búsqueda en vivo todas están "activas".
 
 // Sub-componente local: el badge de procedencia ("de dónde salió esta oferta").
 // No se exporta porque solo lo usa JobList; el modal de detalle vuelve a armar el
@@ -142,9 +130,9 @@ function PortalBadge({ job }) {
       {portal.name}
     </span>
   );
-  // ↑ El nombre va en texto plano, NUNCA solo el ícono: un badge de color sin
-  //   texto no le dice nada a quien navega con lector de pantalla.
 }
+// ↑ El nombre va en texto plano, NUNCA solo el ícono: un badge de color sin
+//   texto no le dice nada a quien navega con lector de pantalla.
 
 // El link de la tarjeta: a la oferta si hay `applyUrl`, y si no a la página de
 // búsqueda del portal. Vive FUERA del <button> de la tarjeta por una razón de
@@ -185,9 +173,10 @@ function JobActions({ job }) {
     //   esconder el botón hacía pensar que la app estaba rota.
   );
 }
+// ↑ Texto legible además del ícono.
 
 // Lista de ofertas de la región: recibe jobs, el modo de vista y el callback onOpen.
-export default function JobList({ jobs, viewMode, minScore, onOpen }) {
+export default function JobList({ jobs: visibleJobs, viewMode, minScore, onOpen }) {
   // ↑ Props desestructurados. onOpen viene del padre: se ejecuta al clickear una card.
   // Las props son los DATOS que viajan de arriba hacia abajo (de App.jsx hacia acá),
   // como un paquete: este componente no busca nada, solo dibuja lo que le pasaron.
@@ -211,6 +200,17 @@ export default function JobList({ jobs, viewMode, minScore, onOpen }) {
   //   valor inicial perezoso y la ejecuta UNA sola vez (al primer render), así
   //   que no vamos al localStorage en cada re-render. Si le pasáramos
   //   loadDismissedJobs(), se leería el almacenamiento en cada dibujada.
+  const [savedJobs, setSavedJobs] = useState(new Set());
+  // ↑ Set de claves de ofertas guardadas (viene del backend via loadFavorites).
+
+  useEffect(() => {
+    loadFavorites().then((data) => {
+      const keys = new Set((data.favorites || []).map((j) => jobDismissKey(j)));
+      setSavedJobs(keys);
+    });
+  }, []);
+  // ↑ Carga favoritos al montar. Es una llamada de lectura, sin timeout: si el
+  //   backend se cuelga, la UI se dibuja sin favoritos y el resto funciona.
 
   function dismissJob(job) {
     // ↑ "Quitar de mi lista": agrega la firma de la oferta al Set de quitadas.
@@ -238,46 +238,29 @@ export default function JobList({ jobs, viewMode, minScore, onOpen }) {
     } catch {}
   }
 
-  // Si no hay ofertas, mostramos un mensaje vacío según la vista (historial o live).
-  if (!jobs.length) {
-    // ↑ "Return temprano": si no hay nada que mostrar, salimos acá y ni siquiera
-    //   llegamos a calcular la paginación ni a dibujar las tarjetas.
-    // El mensaje depende de DOS cosas: si hay un filtro de % activo y de qué vista
-    // se está mirando. Si el filtro fue el que vació la lista, decir "no se
-    // encontraron ofertas" sería mentira: las hay, solo que ninguna pasa el % pedido.
-    const emptyMessage = minScore > 0
-      ? `Ninguna oferta llega al ${minScore}% de match. Bajá el filtro en la barra de arriba para ver el resto.`
-      : viewMode === 'history'
-        ? 'Todavía no hay historial guardado para esta región. Corré una búsqueda primero.'
-        : 'No se encontraron ofertas para esta región.';
+  async function handleToggleFavorite(job) {
+    // ↑ Toggle favorito contra el backend (idempotente: guarda si no está, quita si está).
+    const key = jobDismissKey(job);
+    const wasSaved = savedJobs.has(key);
+    // Optimistic UI: actualiza localmente antes de la respuesta del server.
+    const next = new Set(savedJobs);
+    if (wasSaved) next.delete(key); else next.add(key);
+    setSavedJobs(next);
 
-    return (
-      <div className="empty">{emptyMessage}</div>
-      // ↑ El texto se arma antes del return para no anidar tres ternarios en el JSX.
-    );
+    try {
+      await toggleFavorite(key, job);
+    } catch (err) {
+      // Rollback si falla: vuelve al estado anterior.
+      setSavedJobs(savedJobs);
+      // El error ya se muestra por apiError, no hace falta avisar de nuevo.
+    }
   }
 
-  // Preparamos la lista que se va a ver: primero sacamos lo que el usuario quitó
-  // y después la ordenamos.
-  const visibleJobs = jobs
-    .filter((job) => !dismissedJobs.has(jobDismissKey(job)))
-    // ↑ .filter NO modifica el array original: devuelve uno nuevo con los que
-    //   cumplen la condición (las que NO están en el Set de quitadas).
-    .sort((left, right) => {
-      // ↑ .sort() SÍ modifica el array sobre el que se llama. Por eso va después
-      //   del filter: así ordena la copia nueva y nunca el array del padre.
-      const leftDate = publicationTimestamp(left);
-      const rightDate = publicationTimestamp(right);
-      if (leftDate === null && rightDate !== null) return 1;
-      if (rightDate === null && leftDate !== null) return -1;
-      if (leftDate === null || rightDate === null) return 0;
-      // ↑ El comparador de .sort() devuelve un número: 1 = "la izquierda va
-      //   después", -1 = "la izquierda va antes", 0 = "déjalo igual". Si alguna
-      //   de las dos no tiene fecha, mandamos las que sí al final del todo.
-      return sortOrder === 'newest' ? rightDate - leftDate : leftDate - rightDate;
-      // ↑ Restar es la forma de invertir el orden: "más nueva primero" es
-      //   fecha mayor primero, y "más antigua primero" al revés.
-    });
+  // pageJobs = "rebanada" de la lista según la página: de (página-1)*10 a página*10.
+  const pageJobs = visibleJobs.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  // ↑ .slice() no modifica el arreglo original, devuelve una copia recortada.
+  //   Ej: página 2 con 10 por página -> slice(10, 20) = los elementos 11 al 20.
+
   const visibleTotalPages = Math.max(1, Math.ceil(visibleJobs.length / PAGE_SIZE));
   // ↑ Math.ceil redondea hacia arriba para saber cuántas páginas hacen falta;
   //   el Math.max(1, ...) garantiza que haya al menos 1 página (nunca 0).
@@ -287,10 +270,122 @@ export default function JobList({ jobs, viewMode, minScore, onOpen }) {
   // ↑ "Techo" de la página: si el usuario filtró todo y ahora hay menos páginas,
   //   no dejamos que la página actual sea una que no existe (quedaría en blanco).
 
-  // pageJobs = "rebanada" de la lista según la página: de (página-1)*10 a página*10.
-  const pageJobs = visibleJobs.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
-  // ↑ .slice() no modifica el arreglo original, devuelve una copia recortada.
-  //   Ej: página 2 con 10 por página -> slice(10, 20) = los elementos 11 al 20.
+  // Paginación: solo si hay ofertas y más de una página.
+  const showPagination = visibleJobs.length > 0 && visibleTotalPages > 1;
+
+  // Generar las tarjetas de ofertas (fuera del JSX para que SWC no falle)
+  const jobCards = pageJobs.map((job) => (
+    // ↑ El .map() RECORRE las ofertas de esta página y devuelve una
+    //   tarjeta por cada una. Todo lo que hay adentro se re-dibuja por
+    //   cada iteración: por eso `job` es distinto en cada vuelta.
+    <div className="job-card" key={job.id}>
+      {/* ↑ key es OBLIGATORIA dentro de un map de React. Sin key, React no
+          puede saber qué tarjeta cambió y, al reordenar o borrar, puede
+          reciclar el elemento equivocado (el input equivocado, el foco
+          saltando de lugar). Va en el elemento raíz de cada iteración. */}
+      <button className="job-open" type="button" onClick={() => onOpen(job.id)}>
+        {/* ↑ La tarjeta ES un <button>: toda la zona es clickeable y al
+            hacer click avisamos al padre con el id. La flecha ()=> evita
+            pasar el evento del click en lugar del id. */}
+        <div className="job-top">
+          <div>
+            <div className="job-title">{job.title}</div>
+            <div className="job-company">{job.company}</div>
+            {/* ↑ Título y empresa. El `· {job.source}` de antes se bajó a
+                su propia línea: `source` es texto libre legacy con 44
+                variantes distintas ("Reclutador (LinkedIn)", "Directo
+                (link)") y pegado al nombre de la empresa parecía parte de
+                ella. Ahora se lee como metadata. */}
+          <div className="job-origin">
+            <PortalBadge job={job} />
+            {/* ↑ "De dónde salió esta oferta". Va en su propia línea y no
+                al lado del % de match porque es otro tipo de dato: el
+                % mide el match con tu CV, el portal dice la procedencia. */}
+            {job.source && job.source !== portalInfo(job).name && (
+              <span className="job-source" title="Origen anotado a mano en la base de ofertas">
+                {job.source}
+                {/* ↑ `source` crudo, SOLO como dato secundario: el badge
+                    manda porque sale del link real (server/portal.js) y
+                    no de este texto libre. */}
+              </span>
+            )}
+          </div>
+          </div>
+          <LanguageBadge job={job} />
+          {/* ↑ La etiqueta de idioma va PEGADA al pill del % de match (y
+              separada de él, no adentro): el idioma y el match son dos datos
+              distintos. El margin-left:auto de la clase la empuja a la
+              derecha para que las dos queden siempre juntas. */}
+          <span className={`match-pill ${matchClass(job.score)}`} aria-label={`${matchLabel(job.score)}: ${job.score}%`}>
+            {job.score}%
+            <span className="visually-hidden">, {matchLabel(job.score)}</span>
+          </span>
+          {/* ↑ El pill del % de match: template string para meter la clase
+              que devuelve matchClass() (verde/amarillo/rojo) + el número.
+              WCAG 1.4.1: información no solo por color. aria-label + texto
+              visualmente oculto aseguran que lectores de pantalla anuncien
+              "Match alto: 85%" en lugar de solo "85%". */}
+        </div>
+        <div className="job-meta">
+          <span>📍 {job.location || 'Remote'}</span>
+          <span>📅 Publicada: {formatDisplayDate(job.date) || 'fecha no informada'}</span>
+          {/* ↑ El operador || muestra un texto por defecto cuando el dato
+              no viene: "Remote" si no hay ubicación, "fecha no informada"
+              si no hay fecha. La fecha pasa por el helper de utils.js. */}
+          {job.modality && <span>🕒 {job.modality}</span>}
+          {job.salary && <span>💰 {job.salary}</span>}
+          {/* ↑ Con && se muestran SOLO si el dato existe (si no, no se
+              dibuja nada). Son datos opcionales que trae el backend. */}
+        </div>
+        {viewMode === 'history' && (
+          <div className="job-history"><HistoryBadge job={job} /></div>
+        )}
+        {/* ↑ El badge de historial SOLO tiene sentido en la vista de
+            historial: en la búsqueda en vivo todas están "activas". */}
+        {job.matched && job.matched.length > 0 && (
+          <div className="job-skill-preview">
+            {job.matched.slice(0, 5).map((skill) => <span className="mini" key={skill}>{skill}</span>)}
+            {/* ↑ skills que coinciden con el perfil. El slice(0, 5) muestra
+                solo los 5 primeros: la tarjeta no crece con 40 skills.
+                Acá la key es el nombre del skill (es único dentro de la
+                lista), por eso cada <span> tiene la suya. */}
+          </div>
+        )}
+        </button>
+        <div className="job-actions-row">
+          {/* ↑ Fila de acciones al pie de la tarjeta: el link a la oferta
+              y el botón de quitar. Wrapper NECESARIO por el HTML inválido de
+              más abajo, no por decoración: el <button className="job-open">
+              ocupa toda la tarjeta y no admite un <a> adentro. */}
+          <JobActions job={job} />
+          {/* ↑ El link. Va acá y no dentro del .job-open porque HTML no
+              permite <a> dentro de <button>: el navegador lo reparenta y
+              el click deja de comportarse bien. Además stopPropagation
+              garantiza que abrir el link no abra el modal. */}
+          <button
+            className={`job-fav${savedJobs.has(jobDismissKey(job)) ? ' saved' : ''}`}
+            type="button"
+            onClick={() => handleToggleFavorite(job)}
+            aria-label={savedJobs.has(jobDismissKey(job)) ? `Quitar ${job.title} de favoritos` : `Guardar ${job.title} en favoritos`}
+            title={savedJobs.has(jobDismissKey(job)) ? 'Quitar de favoritos' : 'Guardar en favoritos'}
+          >
+            {savedJobs.has(jobDismissKey(job)) ? '★ Guardada' : '☆ Guardar'}
+          </button>
+          <button
+            className="job-dismiss"
+            type="button"
+            // ↑ También fuera del <button> de la tarjeta, por la misma
+            //   razón: y el click en "quitar" no debe abrir el detalle.
+            onClick={() => dismissJob(job)}
+            aria-label={`Quitar ${job.title} de mi lista`}
+            // ↑ aria-label es el texto que leen los lectores de pantalla.
+            title="Solo la oculta en este navegador; no informa a la empresa."
+          >
+            Quitar de mi lista
+          </button>
+        </div>
+      </div>
+    ));
 
   return (
     <div>
@@ -324,129 +419,32 @@ export default function JobList({ jobs, viewMode, minScore, onOpen }) {
           </button>
         )}
       </div>
-      {visibleJobs.length === 0 ? (
-        // ↑ Hay dos "vacíos" distintos: no hay ofertas (arriba) o el usuario las
-        //   quitó todas (acá). El mensaje tiene que explicar cuál de los dos es.
-        <div className="empty">Quitaste todas las ofertas de esta vista. Puedes restaurarlas cuando quieras.</div>
-      ) : (
-        <div className="job-list">
-          {pageJobs.map((job) => (
-            // ↑ El .map() RECORRE las ofertas de esta página y devuelve una
-            //   tarjeta por cada una. Todo lo que hay adentro se re-dibuja por
-            //   cada iteración: por eso `job` es distinto en cada vuelta.
-            <article className="job-card" key={job.id}>
-              {/* ↑ key es OBLIGATORIA dentro de un map de React. Sin key, React no
-                  puede saber qué tarjeta cambió y, al reordenar o borrar, puede
-                  reciclar el elemento equivocado (el input equivocado, el foco
-                  saltando de lugar). Va en el elemento raíz de cada iteración. */}
-              <button className="job-open" type="button" onClick={() => onOpen(job.id)}>
-                {/* ↑ La tarjeta ES un <button>: toda la zona es clickeable y al
-                    hacer click avisamos al padre con el id. La flecha ()=> evita
-                    pasar el evento del click en lugar del id. */}
-                <div className="job-top">
-                  <div>
-                    <div className="job-title">{job.title}</div>
-                    <div className="job-company">{job.company}</div>
-                    {/* ↑ Título y empresa. El `· {job.source}` de antes se bajó a
-                        su propia línea: `source` es texto libre legacy con 44
-                        variantes distintas ("Reclutador (LinkedIn)", "Directo
-                        (link)") y pegado al nombre de la empresa parecía parte de
-                        ella. Ahora se lee como metadata. */}
-                  <div className="job-origin">
-                    <PortalBadge job={job} />
-                    {/* ↑ "De dónde salió esta oferta". Va en su propia línea y no
-                        al lado del % de match porque es otro tipo de dato: el
-                        % mide el match con tu CV, el portal dice la procedencia. */}
-                    {job.source && job.source !== portalInfo(job).name && (
-                      <span className="job-source" title="Origen anotado a mano en la base de ofertas">
-                        {job.source}
-                        {/* ↑ `source` crudo, SOLO como dato secundario: el badge
-                            manda porque sale del link real (server/portal.js) y
-                            no de este texto libre. */}
-                      </span>
-                    )}
-                  </div>
-                  </div>
-                  <LanguageBadge job={job} />
-                  {/* ↑ La etiqueta de idioma va PEGADA al pill del % de match (y
-                      separada de él, no adentro): el idioma y el match son dos datos
-                      distintos. El margin-left:auto de la clase la empuja a la
-                      derecha para que las dos queden siempre juntas. */}
-                  <span className={`match-pill ${matchClass(job.score)}`}>{job.score}%</span>
-                  {/* ↑ El pill del % de match: template string para meter la clase
-                      que devuelve matchClass() (verde/amarillo/rojo) + el número. */}
-                </div>
-                <div className="job-meta">
-                  <span>📍 {job.location || 'Remote'}</span>
-                  <span>📅 Publicada: {formatDisplayDate(job.date) || 'fecha no informada'}</span>
-                  {/* ↑ El operador || muestra un texto por defecto cuando el dato
-                      no viene: "Remote" si no hay ubicación, "fecha no informada"
-                      si no hay fecha. La fecha pasa por el helper de utils.js. */}
-                  {job.modality && <span>🕒 {job.modality}</span>}
-                  {job.salary && <span>💰 {job.salary}</span>}
-                  {/* ↑ Con && se muestran SOLO si el dato existe (si no, no se
-                      dibuja nada). Son datos opcionales que trae el backend. */}
-                </div>
-                {viewMode === 'history' && (
-                  <div className="job-history"><HistoryBadge job={job} /></div>
-                )}
-                {/* ↑ El badge de historial SOLO tiene sentido en la vista de
-                    historial: en la búsqueda en vivo todas están "activas". */}
-                {job.matched && job.matched.length > 0 && (
-                  <div className="job-skill-preview">
-                    {job.matched.slice(0, 5).map((skill) => <span className="mini" key={skill}>{skill}</span>)}
-                    {/* ↑ skills que coinciden con el perfil. El slice(0, 5) muestra
-                        solo los 5 primeros: la tarjeta no crece con 40 skills.
-                        Acá la key es el nombre del skill (es único dentro de la
-                        lista), por eso cada <span> tiene la suya. */}
-                  </div>
-                )}
-              </button>
-              <div className="job-actions-row">
-                {/* ↑ Fila de acciones al pie de la tarjeta: el link a la oferta
-                    y el botón de quitar. Wrapper NECESARIO por el HTML inválido de
-                    más abajo, no por decoración: el <button className="job-open">
-                    ocupa toda la tarjeta y no admite un <a> adentro. */}
-                <JobActions job={job} />
-                {/* ↑ El link. Va acá y no dentro del .job-open porque HTML no
-                    permite <a> dentro de <button>: el navegador lo reparenta y
-                    el click deja de comportarse bien. Además stopPropagation
-                    garantiza que abrir el link no abra el modal. */}
-                <button
-                  className="job-dismiss"
-                  type="button"
-                  // ↑ También fuera del <button> de la tarjeta, por la misma
-                  //   razón: y el click en "quitar" no debe abrir el detalle.
-                  onClick={() => dismissJob(job)}
-                  aria-label={`Quitar ${job.title} de mi lista`}
-                  // ↑ aria-label es el texto que leen los lectores de pantalla.
-                  title="Solo la oculta en este navegador; no informa a la empresa."
-                >
-                  Quitar de mi lista
-                </button>
-              </div>
-            </article>
-          ))}
+      {/* Si no hay ofertas, mostramos un mensaje vacío según la vista (historial o live). */}
+      {visibleJobs.length === 0 && (
+        // ↑ "Return temprano" condicional: si no hay nada que mostrar, pintamos el
+        //   mensaje y NO llegamos a la lista ni a la paginación.
+        <div className="empty">
+          {minScore > 0
+            ? `Ninguna oferta llega al ${minScore}% de match. Bajá el filtro en la barra de arriba para ver el resto.`
+            : viewMode === 'history'
+            ? 'Todavía no hay historial guardado para esta región. Corré una búsqueda primero.'
+            : 'No se encontraron ofertas para esta región.'}
         </div>
       )}
 
-      {/* La paginación solo se muestra si hay más de una página. */}
-      {visibleJobs.length > 0 && visibleTotalPages > 1 && (
-        // ↑ Con 1 sola página los botones no harian nada, así que no se dibujan.
-        <div className="pagination">
-          <button className="btn small secondary" disabled={safePage <= 1} onClick={() => setPage(safePage - 1)}>
-            ← Anterior
-          </button>
-          {/* ↑ disabled en la primer página: el botón no hace nada y se ve apagado. */}
-          <span className="pagination-info">
-            Página {safePage} de {visibleTotalPages} · {visibleJobs.length} ofertas
-          </span>
-          <button className="btn small secondary" disabled={safePage >= visibleTotalPages} onClick={() => setPage(safePage + 1)}>
-            Siguiente →
-          </button>
-          {/* ↑ setPage cambia el estado y React re-renderiza con la página nueva. */}
-        </div>
-      )}
+      {/* La lista de ofertas: SIEMPRE se renderiza (vacía si no hay jobs). */}
+      <div className="job-list">
+        {jobCards}
+      </div>
+
+      {showPagination ? (
+        <Pagination
+          safePage={safePage}
+          visibleTotalPages={visibleTotalPages}
+          visibleJobs={visibleJobs}
+          setPage={setPage}
+        />
+      ) : null}
     </div>
   );
 }

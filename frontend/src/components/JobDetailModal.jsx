@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 // ↑ useState: recordamos si el resumen ya se copió para cambiar el texto del botón.
 
-import { matchClass, linkedinSearchUrl, portalInfo, jobDestination, noDestinationText, usableUrl } from '../utils.js';
+import { matchClass, matchLabel, linkedinSearchUrl, portalInfo, jobDestination, noDestinationText, usableUrl } from '../utils.js';
 // ↑ matchClass (color del % de match), linkedinSearchUrl (búsqueda genérica de
 //   LinkedIn por título+empresa) y los helpers de procedencia: portalInfo,
 //   jobDestination y noDestinationText. Los tres últimos son los que garantizan
@@ -47,6 +47,18 @@ function copyText(txt) {
 // Modal de detalle de una oferta. Recibe la oferta, su resumen, región, el perfil
 // y dos callbacks del padre: onClose (cerrar modal) y onGenerateLetter (crear carta).
 export default function JobDetailModal({ job, summary, region, profile, onClose, onGenerateLetter }) {
+  const closeRef = useRef(null);
+  // ↑ Para foco inicial y focus trap simple.
+
+  // Escape cierra el modal.
+  useEffect(() => {
+    const handleKey = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', handleKey);
+    return () => document.removeEventListener('keydown', handleKey);
+  }, [onClose]);
+
+  // Foco al abrir.
+  useEffect(() => { closeRef.current?.focus(); }, []);
   // ↑ Toda la desestructuración de props en la firma. El padre decide qué mandar.
 
   const [copied, setCopied] = useState(false);
@@ -138,10 +150,10 @@ export default function JobDetailModal({ job, summary, region, profile, onClose,
     <div className="modal" onClick={(e) => e.target === e.currentTarget && onClose()}>
       {/* ↑ Si el click cae sobre el FONDO oscuro (no el contenido), cerramos el modal.
           e.target vs e.currentTarget distingue "dónde se hizo click". */}
-      <div className="modal-content">
+      <div className="modal-content" role="dialog" aria-modal="true" aria-labelledby="job-detail-title" ref={closeRef}>
         <button className="modal-close" onClick={onClose} aria-label="Cerrar">&times;</button>
         {/* ↑ Botón X: onClose lo mandó el padre para avisarle que se cierre. */}
-        <h2 className="detail-title">{job.title}</h2>
+        <h2 id="job-detail-title" className="detail-title">{job.title}</h2>
         <div className="detail-meta">
           <span className="chip">🏢 {job.company}</span>
           <span className="chip">📍 {job.location || 'Remote'}</span>
@@ -179,8 +191,12 @@ export default function JobDetailModal({ job, summary, region, profile, onClose,
               el idioma de la oferta y el % de match son dos datos distintos y
               meter uno dentro del otro haría que pareciera que el % mide el
               idioma. Es puramente informativa (un <span>, no un botón). */}
-          <span className={`chip match-pill ${matchClass(job.score)}`}>Match {job.score}%</span>
-          {/* ↑ El pill del match usa matchClass para su color (verde/amarillo/rojo). */}
+          <span className={`chip match-pill ${matchClass(job.score)}`} aria-label={`${matchLabel(job.score)}: ${job.score}%`}>
+            Match {job.score}%
+            <span className="visually-hidden">, {matchLabel(job.score)}</span>
+          </span>
+          {/* ↑ El pill del match usa matchClass para su color (verde/amarillo/rojo).
+              WCAG 1.4.1: información no solo por color. */}
         </div>
         <div className="detail-section">
           <h4>Resumen de la empresa</h4>

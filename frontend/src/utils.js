@@ -36,6 +36,18 @@ export function matchClass(score) {
   return 'match-low';
 }
 
+/**
+ * Texto descriptivo del nivel de match para accesibilidad (WCAG 1.4.1).
+ * No se basa solo en color: incluye etiqueta textual.
+ * @param {number} score Porcentaje 0-100.
+ * @returns {string} Texto legible por lectores de pantalla.
+ */
+export function matchLabel(score) {
+  if (score >= 75) return 'Match alto';
+  if (score >= 50) return 'Match medio';
+  return 'Match bajo';
+}
+
 // ============================================================================
 // DETECCIÓN DE IDIOMA DE LA OFERTA (castellano / inglés)
 // ============================================================================

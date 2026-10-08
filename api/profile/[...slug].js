@@ -17,6 +17,7 @@ import { asText, toNumber } from '../../lib/text.js';
 import { MAX_CV_BYTES, extractCvText, validateCvFile } from '../../lib/cvText.js';
 import { assertCvParseAllowed } from '../../lib/cvParseLimit.js';
 import { parseCvToProfile } from '../../lib/llm.js';
+import { checkGlobalDailyLimit, recordGlobalUsage } from '../../lib/globalLimit.js';
 
 export const config = { maxDuration: 60 };
 
@@ -423,8 +424,11 @@ async function handleParseCv(req) {
   const { text: cvText, kind } = await extractCvText(file);
 
   await assertCvParseAllowed(user.id);
+  await checkGlobalDailyLimit('cv');
 
   const profile = await parseCvToProfile(textForLlm(cvText));
+
+  await recordGlobalUsage('cv');
 
   return jsonResponse({
     ok: true,

@@ -9,7 +9,8 @@
     "api/profile/[...slug].js": { "maxDuration": 60 },
     "api/analytics/[...slug].js": { "maxDuration": 30 },
     "api/search/[...slug].js": { "maxDuration": 60 },
-    "api/health.js": { "maxDuration": 30 }
+    "api/health.js": { "maxDuration": 30 },
+    "api/favorites.js": { "maxDuration": 30 }
   },
   "rewrites": [
     { "source": "/api/register", "destination": "/api/auth/register" },
@@ -28,6 +29,7 @@
     { "source": "/api/directorio", "destination": "/api/search/directorio" },
     { "source": "/api/linkedin-search", "destination": "/api/search/linkedin-search" },
     { "source": "/api/health", "destination": "/api/health" },
+    { "source": "/api/favorites", "destination": "/api/favorites" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ]
 }
