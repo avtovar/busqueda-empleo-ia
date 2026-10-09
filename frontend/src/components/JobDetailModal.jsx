@@ -144,7 +144,14 @@ export default function JobDetailModal({ job, summary, region, profile, onClose,
   }
 
   return (
-    <div className="modal" onClick={(e) => e.target === e.currentTarget && onClose()} onKeyDown={(e) => e.key === 'Escape' && onClose()}>
+    <div 
+      className="modal" 
+      onClick={(e) => e.target === e.currentTarget && onClose()} 
+      onKeyDown={(e) => e.key === 'Escape' && onClose()}
+      tabIndex={0}
+      role="button"
+      aria-label="Cerrar modal"
+    >
       {/* ↑ Si el click cae sobre el FONDO oscuro (no el contenido), cerramos el modal.
           e.target vs e.currentTarget distingue "dónde se hizo click". */}
       <div className="modal-content" role="dialog" aria-modal="true" aria-labelledby="job-detail-title" ref={closeRef}>

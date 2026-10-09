@@ -747,7 +747,14 @@ export default function CvOnboarding({ profile, onSaved, onCancel, onDeleteAccou
 
   if (esEditor) {
     return (
-      <div className="modal" onClick={(e) => e.target === e.currentTarget && onCancel()} onKeyDown={(e) => e.key === 'Escape' && onCancel()}>
+      <div 
+        className="modal" 
+        onClick={(e) => e.target === e.currentTarget && onCancel()} 
+        onKeyDown={(e) => e.key === 'Escape' && onCancel()}
+        tabIndex={0}
+        role="button"
+        aria-label="Cerrar modal"
+      >
         {/* ↑ Click en el fondo oscuro cierra, como en los otros modales de la app
             (`LetterModal`, `JobDetailModal`). Mismo criterio en toda la UI. */}
         <div className="modal-content cv-modal" role="dialog" aria-modal="true" aria-labelledby="cv-modal-title">

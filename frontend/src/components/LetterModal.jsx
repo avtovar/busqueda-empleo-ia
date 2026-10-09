@@ -47,7 +47,14 @@ export default function LetterModal({ letter, onClose }) {
   // ↑ Guardia: sin carta no hay modal que mostrar.
 
   return (
-    <div className="modal" onClick={(e) => e.target === e.currentTarget && onClose()} onKeyDown={(e) => e.key === 'Escape' && onClose()}>
+    <div 
+      className="modal" 
+      onClick={(e) => e.target === e.currentTarget && onClose()} 
+      onKeyDown={(e) => e.key === 'Escape' && onClose()}
+      tabIndex={0}
+      role="button"
+      aria-label="Cerrar modal"
+    >
       {/* ↑ Click en el fondo oscuro (target = currentTarget) cierra el modal. */}
       <div className="modal-content letter" role="dialog" aria-modal="true" aria-labelledby="letter-title" ref={closeRef}>
         {/* ↑ Clase `letter` extra: el CSS le da más ancho a este modal.

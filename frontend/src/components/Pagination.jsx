@@ -1,5 +1,3 @@
-import { useEffect } from 'react';
-
 // Paginación: componente separado para evitar problemas de parsing con esbuild
 // al usar condicionales complejos en el nivel superior del JSX.
 export default function Pagination({ safePage, visibleTotalPages, visibleJobs, setPage }) {

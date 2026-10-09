@@ -140,7 +140,14 @@ export default function DeleteAccountModal({ onCancel, onDeleted }) {
   }
 
   return (
-    <div className="modal" onClick={(e) => e.target === e.currentTarget && !borrando && onCancel()} onKeyDown={(e) => e.key === 'Escape' && !borrando && onCancel()}>
+    <div 
+      className="modal" 
+      onClick={(e) => e.target === e.currentTarget && !borrando && onCancel()} 
+      onKeyDown={(e) => e.key === 'Escape' && !borrando && onCancel()}
+      tabIndex={0}
+      role="button"
+      aria-label="Cerrar modal"
+    >
       {/* ↑ Click en el fondo oscuro cierra, como en los otros modales de la app
           (`LetterModal`, `JobDetailModal`, el editor de `CvOnboarding`). Mismo
           criterio en toda la UI. La diferencia es el `!borrando`: mientras el
