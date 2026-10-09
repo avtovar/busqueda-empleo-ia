@@ -512,3 +512,5 @@ async function main() {
 //   Dejando que el proceso termine solo, la salida se vacía y el código sigue
 //   siendo el que se retornó.
 process.exitCode = await main();
+
+export { main };

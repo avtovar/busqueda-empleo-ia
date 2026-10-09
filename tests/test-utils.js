@@ -9,6 +9,9 @@ import { join, dirname } from 'node:path';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
 
+// Base URL para tests locales (apunta al servidor de desarrollo o CI)
+export const TEST_BASE_URL = process.env.TEST_BASE_URL || 'http://localhost:3000';
+
 // Perfiles de prueba para diferentes profesiones
 export const TEST_PROFILES = {
   qa: {
@@ -171,8 +174,11 @@ export function createTestSessionCookie(userId) {
 }
 
 // Helper para hacer requests a endpoints locales (simulando fetch)
+// Si TEST_BASE_URL está definido y la URL es relativa, úsalo como base (para tests contra servidor real)
+// Si no, usa la URL relativa directamente (para tests de handlers directos)
 export async function fetchLocal(handler, method, url, options = {}) {
-  const req = new Request(url, {
+  const fullUrl = url.startsWith('http') ? url : (process.env.TEST_BASE_URL ? `${process.env.TEST_BASE_URL}${url}` : url);
+  const req = new Request(fullUrl, {
     method,
     headers: {
       'Content-Type': 'application/json',
@@ -184,7 +190,7 @@ export async function fetchLocal(handler, method, url, options = {}) {
 }
 
 // Verifica que una respuesta tenga el contrato de error esperado
-export function assertErrorResponse(response, expectedStatus, expectedMessageContains = null) {
+export async function assertErrorResponse(response, expectedStatus, expectedMessageContains = null) {
   if (response.status !== expectedStatus) {
     throw new Error(`Expected status ${expectedStatus}, got ${response.status}`);
   }

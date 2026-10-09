@@ -10,6 +10,9 @@ import { join, dirname } from 'node:path';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
 
+// Base URL para tests (los handlers se llaman directamente, no via HTTP)
+const TEST_BASE_URL = 'http://localhost:3000';
+
 // Importar los handlers
 import { GET as jobsGet, POST as jobsPost } from '../api/jobs/[...slug].js';
 import { GET as searchGet } from '../api/search/[...slug].js';
@@ -37,7 +40,10 @@ async function callEndpoint(handler, method, url, cookies = {}) {
   const headers = { 'Content-Type': 'application/json' };
   if (cookies.cookie) headers['Cookie'] = cookies.cookie;
   
-  const req = new Request(url, {
+  // Usar base URL para que Request funcione correctamente
+  const fullUrl = url.startsWith('http') ? url : `http://localhost:3000${url}`;
+  
+  const req = new Request(fullUrl, {
     method,
     headers,
   });

@@ -10,6 +10,8 @@ import { join, dirname } from 'node:path';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
 
+const TEST_BASE_URL = 'http://localhost:3000';
+
 import { GET as jobsGet } from '../api/jobs/[...slug].js';
 import { GET as searchGet } from '../api/search/[...slug].js';
 import { GET as profileGet } from '../api/profile/[...slug].js';
@@ -20,7 +22,9 @@ async function callEndpoint(handler, method, url, body, cookies = {}) {
   const headers = { 'Content-Type': 'application/json' };
   if (cookies.cookie) headers['Cookie'] = cookies.cookie;
   
-  const req = new Request(url, {
+  const fullUrl = url.startsWith('http') ? url : `http://localhost:3000${url}`;
+  
+  const req = new Request(url.startsWith('http') ? url : `http://localhost:3000${url}`, {
     method,
     headers,
     body: body ? JSON.stringify(body) : undefined,
@@ -29,7 +33,7 @@ async function callEndpoint(handler, method, url, body, cookies = {}) {
   return handler(req);
 }
 
-function assertErrorContract(response, expectedStatus) {
+async function assertErrorContract(response, expectedStatus) {
   assert.equal(response.status, expectedStatus, `Expected status ${expectedStatus}, got ${response.status}`);
   
   const body = await response.json();
