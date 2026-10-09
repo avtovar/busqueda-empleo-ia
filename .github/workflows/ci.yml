@@ -57,13 +57,14 @@ jobs:
         # El prefijo real de los tokens de Apify es apifsk_.
         # Si alguien commiteó uno por error, esto lo detecta ANTES de que llegue a main.
         run: |
-          # grep robusto: ignora binarios, .git, node_modules, archivos de lock
+          # grep robusto: ignora binarios, .git, node_modules, .github (este workflow), archivos de lock
           if grep -r "apifsk_" \
             --exclude-dir=node_modules \
             --exclude-dir=.git \
             --exclude-dir=.vercel \
             --exclude-dir=dist \
             --exclude-dir=build \
+            --exclude-dir=.github \
             --exclude=*.lock \
             --exclude=package-lock.json \
             --exclude=yarn.lock \
