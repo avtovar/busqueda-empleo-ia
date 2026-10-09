@@ -54,28 +54,31 @@ jobs:
           echo "✅ APIFY_API_TOKEN no está en secrets del PR."
 
       - name: Escanear tokens reales de Apify en archivos versionados (grep apifsk_)
-        # El prefijo real de los tokens de Apify es apifsk_.
+        # El prefijo real de los tokens de Apify es apifsk_ seguido de caracteres alfanuméricos.
+        # Un token real: apifsk_xxxxxxxxxxxx. Las referencias en docs/comentarios solo dicen "apifsk_".
         # Si alguien commiteó uno por error, esto lo detecta ANTES de que llegue a main.
         run: |
-          # grep robusto: ignora binarios, .git, node_modules, .github (este workflow), archivos de lock
-          if grep -r "apifsk_" \
+          # grep robusto: busca patrón de token REAL (apifsk_ + alfanuméricos), ignora docs y workflow
+          if grep -rE "apifsk_[a-zA-Z0-9]+" \
             --exclude-dir=node_modules \
             --exclude-dir=.git \
             --exclude-dir=.vercel \
             --exclude-dir=dist \
             --exclude-dir=build \
             --exclude-dir=.github \
+            --exclude-dir=docs \
             --exclude=*.lock \
             --exclude=package-lock.json \
             --exclude=yarn.lock \
             --exclude=pnpm-lock.yaml \
+            --exclude=*.md \
             --binary-files=without-match \
             .; then
-            echo "❌ FALLA: Se encontró token real de Apify (prefijo apifsk_) en archivos versionados."
+            echo "❌ FALLA: Se encontró token REAL de Apify (patrón apifsk_[a-zA-Z0-9]+) en archivos versionados."
             echo "   Rotalo YA en Apify y bórralo del historial con git filter-repo o BFG."
             exit 1
           fi
-          echo "✅ No hay tokens apifsk_ en el repo."
+          echo "✅ No hay tokens reales de Apify en el repo."
 
       - name: Activar secret scanning nativo de GitHub (informativo)
         # No falla el job; solo avisa. La protección real está en los dos pasos de arriba.
