@@ -36,24 +36,40 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Necesario para grep en historial si se desea
 
       - name: Verificar que APIFY_API_TOKEN NO está en secrets del PR
         # En PRs de fork, GitHub NO expone los secrets del repo base.
         # Si este paso ve la variable, es que alguien la puso en el PR (mal) o en el repo (peor).
         run: |
-          if [ -n "${{ env.APIFY_API_TOKEN }}" ] && [ "${{ env.APIFY_API_TOKEN }}" != "" ]; then
-            echo "❌ FALLA: APIFY_API_TOKEN está definido en el entorno del PR."
+          # En PRs, los secrets del repo base NO están disponibles por seguridad.
+          # Si APIFY_API_TOKEN aparece, es que alguien lo puso en el PR (variables de entorno del PR).
+          if [ -n "${{ secrets.APIFY_API_TOKEN }}" ] && [ "${{ secrets.APIFY_API_TOKEN }}" != "" ]; then
+            echo "❌ FALLA: APIFY_API_TOKEN está definido en los secrets del PR/repo."
             echo "   Esto NO debe pasar: la clave de Apify NUNCA va en CI."
             echo "   En Vercel se configura en Settings > Environment Variables."
             exit 1
           fi
-          echo "✅ APIFY_API_TOKEN no está en el entorno del PR."
+          echo "✅ APIFY_API_TOKEN no está en secrets del PR."
 
       - name: Escanear tokens reales de Apify en archivos versionados (grep apifsk_)
         # El prefijo real de los tokens de Apify es apifsk_.
         # Si alguien commiteó uno por error, esto lo detecta ANTES de que llegue a main.
         run: |
-          if grep -r "apifsk_" --exclude-dir=node_modules --exclude-dir=.git .; then
+          # grep robusto: ignora binarios, .git, node_modules, archivos de lock
+          if grep -r "apifsk_" \
+            --exclude-dir=node_modules \
+            --exclude-dir=.git \
+            --exclude-dir=.vercel \
+            --exclude-dir=dist \
+            --exclude-dir=build \
+            --exclude=*.lock \
+            --exclude=package-lock.json \
+            --exclude=yarn.lock \
+            --exclude=pnpm-lock.yaml \
+            --binary-files=without-match \
+            .; then
             echo "❌ FALLA: Se encontró token real de Apify (prefijo apifsk_) en archivos versionados."
             echo "   Rotalo YA en Apify y bórralo del historial con git filter-repo o BFG."
             exit 1
@@ -82,7 +98,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: 'lts/*'
           cache: 'npm'
 
       - name: Install dependencies (root + frontend workspace)
@@ -98,7 +114,7 @@ jobs:
       - name: Build frontend (npm run build)
         run: npm run build
 
-  # ═══════════════════════════════════════════════════════════════════════════
+  # ══════════════════════════════════════════════════════════════════════════
   # 3. TESTS CON POSTGRES + LLM FALSO (needs: lint-check-build)
   # ═══════════════════════════════════════════════════════════════════════════
   tests:
@@ -125,7 +141,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: 'lts/*'
           cache: 'npm'
 
       - name: Install dependencies
@@ -197,7 +213,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: 'lts/*'
           cache: 'npm'
       - name: Install
         run: npm ci
