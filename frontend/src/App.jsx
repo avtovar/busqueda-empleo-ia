@@ -662,9 +662,9 @@ const handleProfileSaved = useCallback((guardado) => {
       effectiveLimit: linkedinMeta.resultLimit || null,
       stats: buildStatsReport(linkedinMeta),
     };
-  }, [linkedinMeta, visibleJobs.length]);
-  // ↑ useMemo porque se recalcula en cada render y solo depende de dos cosas:
-  //   la corrida y cuántas ofertas quedan tras el filtro de % de match.
+  }, [linkedinMeta]);
+  // ↑ useMemo porque se recalcula en cada render y solo depende de la corrida.
+  // visibleJobs.length no es dependencia real: el objeto retornado no lo usa.
 
   // Frase que se le agrega al texto de estado para que se vea qué hizo el filtro.
   function filterSummary() {

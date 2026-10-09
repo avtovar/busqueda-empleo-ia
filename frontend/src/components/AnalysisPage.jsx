@@ -59,7 +59,7 @@ export default function AnalysisPage({ data, profile, viewMode, refreshing, onRe
 
   // % aproximado de cobertura del CV: ofertas totales menos las que piden skills
   // que faltan, sobre el total. Es una métrica simple, no un match por oferta.
-  const coverPct = total ? Math.round(((total - missing.reduce((a, m) => a + m.jobsRequesting, 0)) / total) * 100) : 0;
+  // const coverPct = total ? Math.round(((total - missing.reduce((a, m) => a + m.jobsRequesting, 0)) / total) * 100) : 0;
   // ↑ .reduce() suma los jobsRequesting de cada brecha; sin ofertas queda 0.
 
   return (

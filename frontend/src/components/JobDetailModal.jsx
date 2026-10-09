@@ -106,14 +106,11 @@ export default function JobDetailModal({ job, summary, region, profile, onClose,
   const gaps = job.missed || [];
   // ↑ Skills que pide la oferta y NO están en el CV (brechas).
 
-  // Arma el "resumen de CV" adaptado a esta oferta: nombre + skills pedidas +
-  // headline + dato de postulación + resumen del perfil. Texto plano para pegar.
+// Arma el "resumen de CV" adaptado a esta oferta: nombre + skills pedidas +
+// headline + dato de postulación + resumen del perfil. Texto plano para pegar.
   function buildResumeText() {
     const skills = wanted.join(', ');
     const headline = profile.headline || profile.title || '';
-    // ↑ Arma un arreglo con nombre, headline y ubicación, y filtra vacíos.
-    const header = [profile.fullName, headline, profile.location].filter(Boolean);
-    // ↑ filter(Boolean) elimina cualquier valor "falso" ('' o null) del arreglo.
     const lines = [];
     if (skills) {
       lines.push(`${profile.fullName} — ${skills}.`);
@@ -147,7 +144,7 @@ export default function JobDetailModal({ job, summary, region, profile, onClose,
   }
 
   return (
-    <div className="modal" onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="modal" onClick={(e) => e.target === e.currentTarget && onClose()} onKeyDown={(e) => e.key === 'Escape' && onClose()}>
       {/* ↑ Si el click cae sobre el FONDO oscuro (no el contenido), cerramos el modal.
           e.target vs e.currentTarget distingue "dónde se hizo click". */}
       <div className="modal-content" role="dialog" aria-modal="true" aria-labelledby="job-detail-title" ref={closeRef}>
