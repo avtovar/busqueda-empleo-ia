@@ -202,7 +202,7 @@ jobs:
           done
 
       - name: Correr tests (node:test)
-        run: npm run test
+        run: npm run test -- --test-reporter=verbose
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test?sslmode=disable
           SESSION_SECRET: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
