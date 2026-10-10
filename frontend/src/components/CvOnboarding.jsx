@@ -416,6 +416,18 @@ export default function CvOnboarding({ profile, onSaved, onCancel, onDeleteAccou
   //   una palabra pegada cuando venía una sola de las dos collections. La lista
   //   tiene `join`, que arma la enumeración correcta para 1, 2 y 0.
 
+  const avisoPrivacidad = mostrarPrivacidad && (
+    <PrivacyNotice
+      onAccept={() => setMostrarPrivacidad(false)}
+      onDecline={() => {
+        setMostrarPrivacidad(false);
+        if (inputArchivo.current) inputArchivo.current.value = '';
+        setArchivo(null);
+      }}
+      providerName={import.meta.env.VITE_LLM_PROVIDER_NAME || 'el proveedor configurado (OpenAI-compatible)'}
+    />
+  );
+
   const cuerpo = (
     <>
       {error && (
@@ -742,6 +754,7 @@ export default function CvOnboarding({ profile, onSaved, onCancel, onDeleteAccou
           </div>
         </form>
       )}
+      {avisoPrivacidad}
     </>
   );
 
@@ -762,19 +775,6 @@ export default function CvOnboarding({ profile, onSaved, onCancel, onDeleteAccou
           <h3 id="cv-modal-title">Editar tu perfil</h3>
 {cuerpo}
 
-      {mostrarPrivacidad && (
-        <PrivacyNotice
-          onAccept={() => setMostrarPrivacidad(false)}
-          onDecline={() => {
-            // Si declina, no puede subir CV; la app sigue usable en modo demo
-            setMostrarPrivacidad(false);
-            if (inputArchivo.current) inputArchivo.current.value = '';
-            setArchivo(null);
-          }}
-          show={true}
-          providerName={import.meta.env.VITE_LLM_PROVIDER_NAME || 'el proveedor configurado (OpenAI-compatible)'}
-        />
-      )}
         </div>
       </div>
     );

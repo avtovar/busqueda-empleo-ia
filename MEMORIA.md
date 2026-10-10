@@ -94,6 +94,17 @@ tests no llaman Apify ni un LLM real; el test de CV usa un proveedor falso local
 - `AuthScreen.jsx` toca el contrato con `frontend/src/api.js`; no renombrar el estado de UI sin
   actualizar ese mapeo. Falta desplegar el cambio antes de que afecte al dominio de Vercel.
 
+## PDF bloqueado en el alta (2026-10-09)
+
+- El usuario podía seleccionar el PDF, pero el botón de analizar no se habilitaba: `elegirArchivo()`
+  descarta la selección mientras `mostrarPrivacidad` sea `true`.
+- La compuerta nueva (`!esEditor`) inicializa ese estado en `true`, pero `PrivacyNotice` estaba
+  renderizado únicamente dentro del retorno del editor (`esEditor`). La persona nueva no veía el
+  consentimiento y no podía habilitar la carga.
+- Corregido moviendo la instancia condicional del aviso al contenido compartido de
+  `CvOnboarding`, que renderizan tanto la compuerta como el editor. No se agregó OCR: los PDF
+  escaneados sin texto seleccionable continúan rechazándose con un mensaje explícito.
+
 ## Decisiones de arquitectura (ADRs)
 
 Las decisiones de arquitectura importantes están documentadas en `docs/adrs/` como registros individuales:

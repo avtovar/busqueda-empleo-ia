@@ -740,6 +740,11 @@ archivos), `npm run build` (43 módulos) y 27 aserciones de la capa de red contr
 
 Ojo con cuatro decisiones de esa capa, que no se deducen del código:
 
+- **El aviso de privacidad también se muestra en la compuerta del alta**, no solo
+  en el editor. `elegirArchivo()` descarta la selección mientras
+  `mostrarPrivacidad` sea `true`; por eso `PrivacyNotice` tiene que renderizarse
+  dentro del contenido compartido de `CvOnboarding`, para que un usuario nuevo
+  pueda consentir y habilitar el botón de análisis.
 - **`PUT /api/profile` es un REEMPLAZO, no un parche.** El formulario manda el perfil entero y
   arrastra los dos campos que **no** se editan (`marketSkills` y `projects`), porque lo que no
   viene en el body se borra. El editor los muestra contados y nombrados abajo del formulario
