@@ -45,10 +45,10 @@ import PrivacyNotice from './PrivacyNotice.jsx';
 //   su consentimiento para que el texto del CV viaje al LLM.
 
 // ── El tope de tamaño, repetido acá a propósito ───────────────────────────────
-// Es el MISMO número que `MAX_CV_BYTES` de `api/lib/cvText.js`. No se importa, y
+// Es el MISMO número que `MAX_CV_BYTES` de `lib/cvText.js`. No se importa, y
 // no es descuido: ese módulo es de Node (usa `Buffer`, streams y carga
 // `pdf-parse`/`mammoth` al vuelo), así que meterlo en el bundle del navegador
-// rompe el build de Vite. El valor está duplicado y el BACKEND vuelve a validarlo
+// rompe el build del frontend. El valor está duplicado y el BACKEND vuelve a validarlo
 // igual (`validateCvFile`): lo de acá es solo para dar el error al instante, sin
 // subir 8 MB por la red para que el servidor diga lo mismo. El que manda es el
 // del servidor; esta es cortesía.

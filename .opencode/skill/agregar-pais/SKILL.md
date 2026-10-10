@@ -14,7 +14,7 @@ país obligaba a tocar todos. **Ese error no hay que repetirlo acá.**
 
 ## La regla
 
-**Todo pasa por `api/lib/regions.js`** (el archivo de configuración único de regiones).
+**Todo pasa por `lib/regions.js`** (el archivo de configuración único de regiones).
 No hardcodear nombres de países, ni listas de ciudades, ni URLs de búsqueda en ningún otro
 archivo. Si te ves escribiendo el nombre de un país literal en otro lado, es que falta algo en
 la config.
@@ -27,25 +27,25 @@ argentina: {
   lang: 'es',                // idioma de las cartas de presentación de esa región
   countries: ['Argentina', 'Buenos Aires', 'CABA', 'Córdoba'],
   linkedinLocation: 'Argentina',  // lo que se pasa a la búsqueda de LinkedIn
-  // `portals` ya NO vive acá: el catálogo del directorio está en `api/lib/directorio.js`
+  // `portals` ya NO vive acá: el catálogo del directorio está en `lib/directorio.js`
   // (`DIRECTORIO` keyed by region). Al agregar un país, agregá su entrada en `regions.js`
-  // Y en `api/lib/directorio.js` su catálogo `bolsas` + `consultoras` con URLs verificadas.
+  // Y en `lib/directorio.js` su catálogo `bolsas` + `consultoras` con URLs verificadas.
 }
 ```
 
 ## Los 6 consumidores, y por qué todos leen de la config
 
-Para cambiar o agregar una región, **tocá solo `regions.js` y `api/lib/directorio.js`**.
+Para cambiar o agregar una región, **tocá solo `regions.js` y `lib/directorio.js`**.
 Estos son los consumidores, y ninguno debe volver a hardcodear nada:
 
 | Consumidor | Qué saca de la config |
 |---|---|
-| `api/lib/matcher.js` | `countries` para detectar en qué región cae una oferta |
-| `api/lib/apifyLinkedin.js` | `linkedinLocation` para armar la query de búsqueda |
-| `api/lib/coverLetter.js` | `lang` para decidir carta ES/EN |
+| `lib/matcher.js` | `countries` para detectar en qué región cae una oferta |
+| `lib/apifyLinkedin.js` | `linkedinLocation` para armar la query de búsqueda |
+| `lib/coverLetter.js` | `lang` para decidir carta ES/EN |
 | `api/analytics.js` | `label` para los contadores por región |
 | `frontend/src/utils.js` | `label` para las pestañas y el `REGION_LOCATION` de la UI |
-| `api/lib/directorio.js` | `DIRECTORIO[region]` para el catálogo de bolsas/consultoras |
+| `lib/directorio.js` | `DIRECTORIO[region]` para el catálogo de bolsas/consultoras |
 
 Si tocás uno de esos archivos a mano para agregar un país, la próxima región va a volver a
 exigir el mismo cambio. Ese es el bug.
@@ -66,13 +66,13 @@ Europa y se perdía. No lo reviertas sin pensarlo.
 
 ## Checklist
 
-- [ ] La región nueva está en `api/lib/regions.js`, con los 4 campos (`label`, `lang`, `countries`, `linkedinLocation`)
+- [ ] La región nueva está en `lib/regions.js`, con los 4 campos (`label`, `lang`, `countries`, `linkedinLocation`)
 - [ ] `countries` incluye las variantes que la gente escribe de verdad (con y sin acento,
       abreviaturas como "CABA", nombres de las provincias o estados principales)
 - [ ] `linkedinLocation` es **el texto que LinkedIn espera**, no el nombre del país en
       español. Verificá contra una búsqueda real de LinkedIn.
 - [ ] `lang` es correcto: define el idioma de la carta, no el de la búsqueda
-- [ ] El catálogo del directorio está en `api/lib/directorio.js` (`DIRECTORIO[region]` con
+- [ ] El catálogo del directorio está en `lib/directorio.js` (`DIRECTORIO[region]` con
       `bolsas` + `consultoras`), **cada URL verificada** (script temporal con aserciones)
 - [ ] `npm run check` y `npm run build` pasan
 - [ ] Una búsqueda de prueba trae ofertas de la región nueva y `assignRegion` las clasifica

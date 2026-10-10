@@ -7,7 +7,7 @@ import { REGIONS, regionLabel } from '../../../lib/regions.js';
 //   oferta. Antes eran 7 países escritos a mano acá; agregar un país obligaba a
 //   editar esta lista, la de `utils.js`, la de `App.jsx` y las del backend (los 5
 //   lugares repetidos de los que habla AGENTS.md). Ahora es UNA entrada en
-//   `api/lib/regions.js` y las cuatro se enteran solas.
+//   `lib/regions.js` y las cuatro se enteran solas.
 //   OJO al path: este archivo está en `frontend/src/components/`, un nivel más
 //   abajo que `src/`, así que necesita tres `..` para llegar a la raíz del repo.
 import { regionFlag } from '../utils.js';

@@ -6,7 +6,7 @@ description: Explica y mantiene el cálculo del porcentaje de match entre el per
 # La comparación de match: usuario ↔ ofertas
 
 Es la función que responde "¿qué tan válida es esta oferta para mí?". Vive en
-`api/lib/matcher.js` (en el origen: `server/matcher.js`). Es **lógica de negocio**, no
+`lib/matcher.js` (en el origen: `server/matcher.js`). Es **lógica de negocio**, no
 plumbing: los números están elegidos a mano y cambian el orden de los resultados.
 
 ## Qué devuelve cada oferta
@@ -126,7 +126,7 @@ Y ojo con `||` contra `??`: `date` puede ser `''` (Remotive no siempre trae fech
 
 ## Verificar un cambio acá
 
-`node --check api/lib/matcher.js` y después probá con ofertas reales. Lo que hay que mirar:
+`node --check lib/matcher.js` y después probá con ofertas reales. Lo que hay que mirar:
 
 - [ ] Un usuario **no-QA** con su perfil recibe ofertas con score **mayor a 0**
 - [ ] Un skill en el **título** puntúa más que el mismo skill solo en la descripción

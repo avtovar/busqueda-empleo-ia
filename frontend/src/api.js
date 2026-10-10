@@ -4,11 +4,11 @@
 //
 // PATRÓN DEL ARCHIVO: una función por endpoint del backend.
 // Centralizar el acceso a la red en un solo lugar sirve para tres cosas:
-//   1) Cambiar la URL base o el proxy (config de Vite) en un solo archivo.
+//   1) Cambiar la URL base o el proxy del servidor de desarrollo en un solo archivo.
 //   2) Decidir UNA sola vez qué pasa si el servidor no responde (el FALLBACK).
 //   3) Que los componentes no tengan que saber ni una URL: solo llaman
 //      loadJobs('argentina') y reciben datos.
-// Las URLs son relativas ("/api/..."): en desarrollo Vite las reenvía al
+// Las URLs son relativas ("/api/..."): en desarrollo Rspack las reenvía al
 // backend (proxy de vite.config.js) y en producción las sirve el mismo server.
 //
 // OJO, este párrafo cambió con el alta (paso 7). Antes decía "no hay timeout ni
@@ -491,7 +491,7 @@ export async function saveProfile(profile) {
 //
 // OJO con las cookies: la de sesión es HttpOnly, así que ni este código ni la UI la
 // ven. Por eso no hay `credentials: 'include'` explícito — el mismo origen (el proxy
-// de Vite en desarrollo, el rewrite en producción) ya envía la cookie sola. Ponerla
+// de Rspack en desarrollo, el rewrite en producción) ya envía la cookie sola. Ponerla
 // no arregla nada y en un dominio distinto sí mandaría una petición CORS que el
 // backend no responde.
 //

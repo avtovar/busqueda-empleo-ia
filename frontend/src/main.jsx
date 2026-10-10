@@ -12,7 +12,7 @@ import App from './App.jsx';
 
 import './styles.css';
 // ↑ Estilos globales de la app (tema oscuro, cards, modales, etc.). Se importan
-//   una sola vez acá para que Vite los inyecte y apliquen a toda la página.
+//   una sola vez acá para que el bundler los incluya y apliquen a toda la página.
 
 // Buscamos el <div id="root"> que está en index.html y montamos la app ahí adentro.
 ReactDOM.createRoot(document.getElementById('root')).render(

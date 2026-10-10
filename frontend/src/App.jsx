@@ -77,7 +77,7 @@ import {
 // Nombres de las regiones para poder hablar de "otras regiones" sin mostrar claves
 // internas como 'argentina' en un texto que lee el usuario.
 // ↑ No hay ninguna tabla acá: se usa `regionLabel()` de la configuración compartida
-//   (`api/lib/regions.js`), que ya devuelve el label y, si la clave no existe, la
+//   (`lib/regions.js`), que ya devuelve el label y, si la clave no existe, la
 //   propia clave. Antes eran 7 países escritos a mano en este archivo (el cuarto de
 //   los cinco lugares repetidos de AGENTS.md), y cualquier región que no estuviera
 //   en la lista se leía cruda al usuario.

@@ -4,20 +4,25 @@
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { join, dirname } from 'node:path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
 
-import { assertLoginAllowed, clearFailedLogins, countRecentAttempts } from '../lib/rateLimit.js';
+import { query } from '../lib/db.js';
+import { withLoginAttempt, countRecentAttempts } from '../lib/rateLimit.js';
 import { assertCvParseAllowed, countRecentCvParses } from '../lib/cvParseLimit.js';
 import { assertApifyAllowed, countTodayApifyUsage } from '../lib/apifyLimit.js';
 
 const TEST_DB_URL = 'postgresql://postgres:postgres@localhost:5432/test?sslmode=disable';
-const TEST_EMAIL = 'rate-limit-test@example.com';
-const TEST_IP = '192.0.2.1';
-const TEST_USER_ID = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
+const TEST_EMAIL = `rate-limit-${randomUUID()}@example.test`;
+const TEST_IP = `test-ip-${randomUUID()}`;
+const TEST_USER_ID = randomUUID();
+const testEmails = new Set([TEST_EMAIL]);
+const testIps = new Set([TEST_IP]);
+const testUserIds = new Set([TEST_USER_ID]);
 
 function setupEnv() {
   process.env.DATABASE_URL = TEST_DB_URL;
@@ -31,91 +36,98 @@ function setupEnv() {
 }
 
 async function cleanup() {
-  const { query } = await import('../lib/db.js');
-  await query('DELETE FROM login_attempts WHERE email = $1', [TEST_EMAIL]);
-  await query('DELETE FROM cv_parses WHERE user_id = $1', [TEST_USER_ID]);
-  await query('DELETE FROM apify_usage WHERE user_id = $1', [TEST_USER_ID]);
+  await query(
+    'delete from login_attempts where email = any($1::text[]) or ip = any($2::text[])',
+    [[...testEmails], [...testIps]],
+  );
+  await query('delete from users where id = any($1::uuid[])', [[...testUserIds]]);
+}
+
+async function createTestUser() {
+  const userId = randomUUID();
+  testUserIds.add(userId);
+  await query(
+    'insert into users (id, email, password_hash) values ($1, $2, $3)',
+    [userId, `rate-limit-${userId}@example.test`, 'test-hash'],
+  );
+  return userId;
+}
+
+async function createFixedTestUser() {
+  await query(
+    'insert into users (id, email, password_hash) values ($1, $2, $3)',
+    [TEST_USER_ID, `rate-limit-${TEST_USER_ID}@example.test`, 'test-hash'],
+  );
+}
+
+function failedLogin(email, ip) {
+  return withLoginAttempt({ email, ip }, async () => ({ authenticated: false }));
 }
 
 describe('Rate limits — concurrencia real', () => {
   before(async () => {
     setupEnv();
     await cleanup();
+    await createFixedTestUser();
   });
 
   after(async () => {
     await cleanup();
   });
 
-  describe('Login rate limit (assertLoginAllowed)', () => {
-    it('permite hasta maxPerPair intentos fallidos por (email, ip)', async () => {
-      await clearFailedLogins(TEST_EMAIL);
-      
+  describe('Login rate limit (withLoginAttempt)', () => {
+    it('registra fallos y rechaza el siguiente intento al llegar al límite', async () => {
       for (let i = 0; i < 3; i++) {
-        const result = await assertLoginAllowed({ email: TEST_EMAIL, ip: TEST_IP });
-        assert.equal(result.allowed, true, `Attempt ${i + 1} should be allowed`);
+        const result = await failedLogin(TEST_EMAIL, TEST_IP);
+        assert.equal(result.authenticated, false);
       }
-      
-      try {
-        await assertLoginAllowed({ email: TEST_EMAIL, ip: TEST_IP });
-        assert.fail('Should have thrown 429 on 4th attempt');
-      } catch (err) {
+
+      await assert.rejects(failedLogin(TEST_EMAIL, TEST_IP), (err) => {
         assert.equal(err.status, 429);
         assert.ok(err.headers?.['Retry-After']);
         assert.ok(err.extra?.retryAfterSeconds > 0);
-      }
+        return true;
+      });
     });
 
-    it('concurrencia: 10 requests simultáneos no pasan el límite (advisory lock)', async () => {
-      await clearFailedLogins(TEST_EMAIL);
-      const email = `concurrent-${Date.now()}@test.com`;
-      
-      const promises = Array(10).fill(null).map(() => 
-        assertLoginAllowed({ email, ip: TEST_IP }).catch(e => e)
+    it('concurrencia: solicitudes simultáneas no pasan el límite', async () => {
+      const email = `concurrent-${randomUUID()}@example.test`;
+      const ip = `test-ip-${randomUUID()}`;
+      testEmails.add(email);
+      testIps.add(ip);
+      const results = await Promise.all(
+        Array(10).fill(null).map(() => failedLogin(email, ip).catch((err) => err)),
       );
-      
-      const results = await Promise.all(promises);
-      const allowed = results.filter(r => r?.allowed === true).length;
-      const rejected = results.filter(r => r?.status === 429).length;
-      
-      assert.equal(allowed, 3, `Expected 3 allowed, got ${allowed}`);
+      const allowed = results.filter((result) => result?.authenticated === false).length;
+      const rejected = results.filter((result) => result?.status === 429).length;
+
+      assert.equal(allowed, 3, `Expected 3 failed logins admitted, got ${allowed}`);
       assert.equal(rejected, 7, `Expected 7 rejected, got ${rejected}`);
-      
-      const count = await countRecentAttempts({ email, ip: TEST_IP });
-      assert.equal(count.pair, 3, `DB should have 3 attempts, has ${count.pair}`);
+      const count = await countRecentAttempts({ email, ip });
+      assert.equal(count.pair, 3);
     });
 
-    it('login exitoso limpia los intentos (clearFailedLogins)', async () => {
-      await clearFailedLogins(TEST_EMAIL);
-      await assertLoginAllowed({ email: TEST_EMAIL, ip: TEST_IP });
-      await assertLoginAllowed({ email: TEST_EMAIL, ip: TEST_IP });
-      
-      let count = await countRecentAttempts({ email: TEST_EMAIL, ip: TEST_IP });
-      assert.equal(count.pair, 2);
-      
-      await clearFailedLogins(TEST_EMAIL);
-      
-      count = await countRecentAttempts({ email: TEST_EMAIL, ip: TEST_IP });
-      assert.equal(count.pair, 0, 'clearFailedLogins should remove all attempts for email');
+    it('login exitoso limpia intentos previos del correo', async () => {
+      const email = `success-${randomUUID()}@example.test`;
+      const ip = `test-ip-${randomUUID()}`;
+      testEmails.add(email);
+      testIps.add(ip);
+      await failedLogin(email, ip);
+      await failedLogin(email, ip);
+      assert.equal((await countRecentAttempts({ email, ip })).pair, 2);
+
+      await withLoginAttempt({ email, ip }, async () => ({ authenticated: true }));
+      assert.equal((await countRecentAttempts({ email, ip })).pair, 0);
     });
 
-    it('429 NO cuenta como intento (rollback en transacción)', async () => {
-      await clearFailedLogins(TEST_EMAIL);
-      const email = `rollback-test-${Date.now()}@test.com`;
-      
-      for (let i = 0; i < 3; i++) {
-        await assertLoginAllowed({ email, ip: TEST_IP });
-      }
-      
-      try {
-        await assertLoginAllowed({ email, ip: TEST_IP });
-        assert.fail('Should have thrown 429');
-      } catch (err) {
-        assert.equal(err.status, 429);
-      }
-      
-      const count = await countRecentAttempts({ email, ip: TEST_IP });
-      assert.equal(count.pair, 3, '429 should not insert row (rollback)');
+    it('429 no agrega otro intento', async () => {
+      const email = `rollback-${randomUUID()}@example.test`;
+      const ip = `test-ip-${randomUUID()}`;
+      testEmails.add(email);
+      testIps.add(ip);
+      for (let i = 0; i < 3; i++) await failedLogin(email, ip);
+      await assert.rejects(failedLogin(email, ip), { status: 429 });
+      assert.equal((await countRecentAttempts({ email, ip })).pair, 3);
     });
   });
 
@@ -139,7 +151,7 @@ describe('Rate limits — concurrencia real', () => {
     });
 
     it('concurrencia: 5 requests simultáneos respetan límite de 2', async () => {
-      const userId = `concurrent-cv-${Date.now()}`;
+      const userId = await createTestUser();
       
       const promises = Array(5).fill(null).map(() => 
         assertCvParseAllowed(userId).catch(e => e)
@@ -159,7 +171,7 @@ describe('Rate limits — concurrencia real', () => {
     it('CV_PARSE_LIMIT=0 desactiva el límite', async () => {
       process.env.CV_PARSE_LIMIT = '0';
       
-      const userId = `unlimited-${Date.now()}`;
+      const userId = await createTestUser();
       for (let i = 0; i < 10; i++) {
         const result = await assertCvParseAllowed(userId);
         assert.equal(result.allowed, true);
@@ -191,7 +203,7 @@ describe('Rate limits — concurrencia real', () => {
     });
 
     it('concurrencia: 5 requests simultáneos respetan límite diario de 2', async () => {
-      const userId = `concurrent-apify-${Date.now()}`;
+      const userId = await createTestUser();
       
       const promises = Array(5).fill(null).map(() => 
         assertApifyAllowed(userId).catch(e => e)
@@ -211,7 +223,7 @@ describe('Rate limits — concurrencia real', () => {
     it('APIFY_DAILY_LIMIT=0 desactiva el límite', async () => {
       process.env.APIFY_DAILY_LIMIT = '0';
       
-      const userId = `unlimited-apify-${Date.now()}`;
+      const userId = await createTestUser();
       for (let i = 0; i < 10; i++) {
         const result = await assertApifyAllowed(userId);
         assert.equal(result.allowed, true);

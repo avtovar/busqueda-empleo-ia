@@ -1,39 +1,27 @@
 // ============================================================================
-// TESTS: Compuertas de autenticación (401/403/200) en los 6 endpoints de ofertas
+// TESTS: Compuertas de autenticación (401/403/200) en endpoints protegidos
 // ============================================================================
 
-import { describe, it, before } from 'node:test';
+import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { fileURLToPath } from 'node:url';
-import { join, dirname } from 'node:path';
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const ROOT = join(__dirname, '..');
-
-// Base URL para tests (los handlers se llaman directamente, no via HTTP)
-const TEST_BASE_URL = 'http://localhost:3000';
+import { query } from '../lib/db.js';
+import { createTestSessionCookie } from './test-utils.js';
 
 // Importar los handlers
 import { GET as jobsGet, POST as jobsPost } from '../api/jobs/[...slug].js';
-import { GET as searchGet } from '../api/search/[...slug].js';
 import { GET as analyticsGet } from '../api/analytics/[...slug].js';
 import { GET as profileGet } from '../api/profile/[...slug].js';
+import { GET as healthGet } from '../api/health.js';
 
-// Endpoints que requieren requireProfile (6 endpoints de ofertas)
+// Endpoints de ofertas y perfil protegidos por requireProfile.
 const JOB_ENDPOINTS = [
   { name: 'GET /api/jobs', handler: jobsGet, method: 'GET', url: '/api/jobs?region=argentina' },
   { name: 'GET /api/job', handler: jobsGet, method: 'GET', url: '/api/job?q=test-1' },
   { name: 'GET /api/history', handler: jobsGet, method: 'GET', url: '/api/history?region=argentina' },
   { name: 'POST /api/refresh', handler: jobsPost, method: 'POST', url: '/api/refresh' },
-  { name: 'GET /api/cover-letter', handler: analyticsGet, method: 'GET', url: '/api/cover-letter?region=argentina&id=test-1' },
-  { name: 'GET /api/analytics', handler: analyticsGet, method: 'GET', url: '/api/analytics' },
-  { name: 'GET /api/profile', handler: profileGet, method: 'GET', url: '/api/profile' },
-];
-
-// Endpoints públicos (sin compuerta)
-const PUBLIC_ENDPOINTS = [
-  { name: 'GET /api/health', handler: null, method: 'GET', url: '/api/health' },
-  // register, login, logout se testean aparte
+  { name: 'GET /api/cover-letter', handler: analyticsGet, method: 'GET', url: '/api/analytics/cover-letter?region=argentina&id=test-1' },
+  { name: 'GET /api/analytics', handler: analyticsGet, method: 'GET', url: '/api/analytics/analytics' },
+  { name: 'GET /api/profile', handler: profileGet, method: 'GET', url: '/api/profile/profile' },
 ];
 
 async function callEndpoint(handler, method, url, cookies = {}) {
@@ -41,9 +29,7 @@ async function callEndpoint(handler, method, url, cookies = {}) {
   if (cookies.cookie) headers['Cookie'] = cookies.cookie;
   
   // Usar base URL para que Request funcione correctamente
-  const fullUrl = url.startsWith('http') ? url : `http://localhost:3000${url}`;
-  
-  const req = new Request(fullUrl, {
+  const req = new Request(url.startsWith('http') ? url : `http://localhost:3000${url}`, {
     method,
     headers,
   });
@@ -56,25 +42,30 @@ async function callEndpoint(handler, method, url, cookies = {}) {
   }
 }
 
-describe('Compuertas de autenticación — 6 endpoints de ofertas', () => {
+describe('Compuertas de autenticación — endpoints protegidos', () => {
   let validUserId, validSessionCookie, invalidSessionCookie;
 
   before(async () => {
-    // Crear un usuario de prueba en la BD
-    // NOTA: Esto asume que hay una BD de test corriendo
-    // En CI real, esto se haría en un beforeAll con la BD de test
     validUserId = '00000000-0000-0000-0000-000000000001';
+    await query(
+      `insert into users (id, email, password_hash)
+       values ($1, $2, 'test-hash')
+       on conflict (id) do update set email = excluded.email`,
+      [validUserId, 'auth-gates-test@example.test'],
+    );
+    await query('delete from profiles where user_id = $1', [validUserId]);
     
-    // Cookie válida (firmada con SESSION_SECRET del entorno)
-    const crypto = await import('node:crypto');
-    const exp = Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60;
-    const payload = `v1.${validUserId}.${exp}`;
-    const secret = process.env.SESSION_SECRET || '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
-    const hmac = crypto.createHash('sha256').update(payload + '.' + secret).digest('base64url');
-    validSessionCookie = `bei_session=${payload}.${hmac}`;
+    // Se firma con el mismo helper que usa la app; un hash de concatenación
+    // no equivale al HMAC que valida requireSession().
+    validSessionCookie = createTestSessionCookie(validUserId);
     
     // Cookie inválida (firma incorrecta)
+    const exp = Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60;
     invalidSessionCookie = `bei_session=v1.${validUserId}.${exp}.invalid-signature`;
+  });
+
+  after(async () => {
+    await query('delete from users where id = $1', [validUserId]);
   });
 
   for (const endpoint of JOB_ENDPOINTS) {
@@ -84,7 +75,6 @@ describe('Compuertas de autenticación — 6 endpoints de ofertas', () => {
         assert.equal(res.status, 401, `${endpoint.name}: expected 401 without cookie`);
         const body = await res.json();
         assert.ok(body.error);
-        assert.equal(body.status, 401);
       });
 
       it('con cookie inválida → 401', async () => {
@@ -94,29 +84,16 @@ describe('Compuertas de autenticación — 6 endpoints de ofertas', () => {
         assert.equal(res.status, 401, `${endpoint.name}: expected 401 with invalid cookie`);
         const body = await res.json();
         assert.ok(body.error);
-        assert.equal(body.status, 401);
       });
 
       it('con cookie válida pero SIN perfil → 403 + profileComplete: false', async () => {
         const res = await callEndpoint(endpoint.handler, endpoint.method, endpoint.url, {
           cookie: validSessionCookie,
         });
-        // Nota: esto dará 403 solo si el usuario existe en la BD pero no tiene perfil
-        // En un test real con BD, esto se verifica. Aquí solo documentamos la expectativa.
-        if (res.status === 403) {
-          const body = await res.json();
-          assert.ok(body.error);
-          assert.equal(body.status, 403);
-          // El body puede tener profileComplete: false
-        } else if (res.status === 401) {
-          // Usuario no existe en BD de test - también válido
-          const body = await res.json();
-          assert.ok(body.error);
-          assert.equal(body.status, 401);
-        } else {
-          // 200 si el usuario tiene perfil (en BD real)
-          assert.ok([200, 403, 401].includes(res.status));
-        }
+        assert.equal(res.status, 403, `${endpoint.name}: profile-less user must get 403`);
+        const body = await res.json();
+        assert.ok(body.error);
+        assert.equal(body.profileComplete, false);
       });
     });
   }
@@ -124,8 +101,10 @@ describe('Compuertas de autenticación — 6 endpoints de ofertas', () => {
 
 describe('Endpoints públicos — sin compuerta', () => {
   it('GET /api/health → 200 sin cookie', async () => {
-    // health.js no se importa aquí porque es simple, pero la expectativa es:
-    // 200 con { ok: true, service: 'busqueda-empleo-ia', time: '...' }
-    assert.ok(true, 'Placeholder - health endpoint test');
+    const res = await callEndpoint(healthGet, 'GET', '/api/health');
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.ok, true);
+    assert.equal(body.service, 'busqueda-empleo-ia');
   });
 });

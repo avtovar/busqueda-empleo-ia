@@ -8,7 +8,7 @@
     "frontend"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=20.19"
   },
   "scripts": {
     "build": "rspack build --config rspack.config.js",
@@ -27,6 +27,7 @@
   "devDependencies": {
     "@rspack/cli": "^2.2.8",
     "@rspack/core": "^2.2.8",
+    "@rspack/dev-server": "^2.2.1",
     "@rspack/plugin-node-polyfill": "^0.5.8",
     "@rspack/plugin-react-refresh": "^2.0.2",
     "@vitejs/plugin-react-swc": "^4.3.3",

@@ -34,7 +34,7 @@ import {
 } from '../../lib/auth-fetch.js';
 import { query, withTransaction } from '../../lib/db.js';
 import { HttpError, ConfigError } from '../../lib/http.js';
-import { assertLoginAllowed, clearFailedLogins, recordFailedLogin } from '../../lib/rateLimit.js';
+import { withLoginAttempt } from '../../lib/rateLimit.js';
 import { checkGlobalDailyLimit, recordGlobalUsage } from '../../lib/globalLimit.js';
 
 export const config = { maxDuration: 30 };
@@ -164,23 +164,21 @@ async function handleLogin(req) {
   const { email, password } = readCredentials(body);
   const ip = getClientIp(req);
 
-  await assertLoginAllowed({ email, ip });
+  const { user } = await withLoginAttempt({ email, ip }, async (client) => {
+    const { rows } = await client.query(
+      'select id, email, password_hash, created_at from users where email = $1',
+      [email],
+    );
+    const candidate = rows[0] || null;
+    const hash = candidate ? candidate.password_hash : dummyHash();
+    const claveOk = await verifyPassword(password, hash);
+    const authenticated = Boolean(candidate && claveOk);
+    return { authenticated, user: authenticated ? candidate : null };
+  });
 
-  const { rows } = await query(
-    'select id, email, password_hash, created_at from users where email = $1',
-    [email],
-  );
-  const user = rows[0] || null;
-
-  const hash = user ? user.password_hash : dummyHash();
-  const claveOk = await verifyPassword(password, hash);
-
-  if (!user || !claveOk) {
-    await recordFailedLogin({ email, ip });
+  if (!user) {
     return errorResponse(INVALID_CREDENTIALS, 401);
   }
-
-  await clearFailedLogins(email);
 
   const profileComplete = await hasProfile(user.id);
   const sessionCookie = createSessionCookie(user.id);

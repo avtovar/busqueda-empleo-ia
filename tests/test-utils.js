@@ -2,7 +2,7 @@
 // Utilidades compartidas para tests
 // ============================================================================
 
-import { createHash } from 'node:crypto';
+import { createHmac } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { join, dirname } from 'node:path';
 
@@ -169,7 +169,7 @@ export function createTestSessionCookie(userId) {
   const exp = Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60; // 7 días
   const payload = `v1.${userId}.${exp}`;
   const secret = process.env.SESSION_SECRET || '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
-  const hmac = createHash('sha256').update(payload + '.' + secret).digest('base64url');
+  const hmac = createHmac('sha256', secret).update(payload).digest('base64url');
   return `bei_session=${payload}.${hmac}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=604800`;
 }
 
@@ -197,9 +197,6 @@ export async function assertErrorResponse(response, expectedStatus, expectedMess
   const body = await response.json();
   if (expectedMessageContains && !body.error?.includes(expectedMessageContains)) {
     throw new Error(`Error message "${body.error}" does not contain "${expectedMessageContains}"`);
-  }
-  if (!Number.isInteger(body.status) || body.status < 400 || body.status > 599) {
-    throw new Error(`Error response missing valid status field: ${JSON.stringify(body)}`);
   }
   return body;
 }

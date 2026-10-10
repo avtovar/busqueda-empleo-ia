@@ -1,7 +1,6 @@
 // ============================================================================
 // Verificación de sintaxis de TODO el backend, archivo por archivo.
-// Esto es lo ÚNICO que hay como chequeo automático: el proyecto no tiene linter,
-// ni typecheck, ni framework de tests, y no los va a tener.
+// Comprueba la sintaxis del backend compartido y de los scripts.
 //
 // Por qué un script y no un comando suelto: `node --check` hay que pasarlo UN
 // archivo a la vez (no acepta un patrón), y en Windows el globbing de PowerShell
@@ -9,7 +8,7 @@
 // cualquier máquina y en CI.
 //
 // OJO con los .jsx: `node --check` NO sabe parsear JSX, así que los .jsx quedan
-// afuera. Esos los valida `npm run build` (Vite), que además detecta imports
+//   afuera. Esos los valida `npm run build` (Rspack), que además detecta imports
 // rotos. Por eso el build no es opcional cuando se toca frontend/src.
 // ============================================================================
 
@@ -26,7 +25,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 
 // Carpetas que se chequean, en orden. Se recorren recursivamente.
-const TARGETS = ['api', 'scripts'];
+const TARGETS = ['api', 'lib', 'scripts'];
 
 // Carpetas que nunca se chequean, aunque estén adentro de las de arriba.
 // ↑ `node_modules` son dependencias instaladas y `dist` es build artifact: si

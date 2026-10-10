@@ -41,14 +41,14 @@
        ↑ es el nombre exacto que React busca en main.jsx para saber dónde
        ↑ dibujarse (se llama root = raíz, y de ahí el nombre "React root").
        ↑ Con este HTML solo, sin JavaScript, la página se vería en blanco. -->
-  <!-- ↑ type="module" le dice al navegador que ese archivo ES un módulo de
-       ↑ JavaScript moderno, y no el clásico "text/javascript". Gracias a esto se
-       ↑ puede usar import/export y el navegador se encarga solo de esperar y
-       ↑ descargar todo lo que ese archivo importa. -->
-  <script type="module" src="/src/main.jsx"></script>
-  <!-- ↑ Acá se carga TODO: este script es el punto de entrada de React. O sea que
-       ↑ el flujo es: navegador lee este HTML → ejecuta main.jsx → React dibuja
-       ↑ dentro del div#root de arriba. Todo lo demás (App.jsx, los componentes,
-       ↑ los estilos) se importa desde main.jsx, no desde este archivo. -->
+  <!-- ↑ OJO: acá NO va un <script> a mano.
+       ↑ El empaquetador (Rspack) usa HtmlRspackPlugin con este archivo como
+       ↑ plantilla, y es ÉL quien inyecta automáticamente el <script type="module">
+       ↑ que apunta al bundle compilado (main.js). Si escribís el <script> acá a
+       ↑ mano, apuntaría a "/src/main.jsx" —que el navegador no sabe servir— y
+       ↑ daría un 404 además del script real. El punto de entrada sigue siendo
+       ↑ main.jsx (definido en rspack.config.js), pero lo agrega el plugin, no
+       ↑ este archivo. El flujo es: navegador lee este HTML → carga el bundle
+       ↑ inyectado → ejecuta main.jsx → React dibuja en el div#root de arriba. -->
 </body>
 </html>

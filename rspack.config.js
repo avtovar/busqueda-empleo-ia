@@ -5,6 +5,7 @@
 
 const path = require('path');
 const { ReactRefreshRspackPlugin } = require('@rspack/plugin-react-refresh');
+const { HtmlRspackPlugin } = require('@rspack/core');
 
 const isDev = process.env.NODE_ENV === 'development';
 
@@ -64,12 +65,21 @@ module.exports = {
   },
 plugins: [
     isDev ? new ReactRefreshRspackPlugin() : null,
+    // ↑ Sin esto el build NO produce un index.html: el deploy y el dev server
+    //   devuelven 404 en "/" y la app se ve en blanco, aunque el bundle compile.
+    new HtmlRspackPlugin({
+      template: path.resolve(__dirname, 'frontend/index.html'),
+      filename: 'index.html',
+      scriptLoading: 'module',
+      inject: 'body',
+    }),
     new (require('@rspack/core').DefinePlugin)({
       'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV || 'development'),
     }),
   ],
   devServer: {
     port: 5173,
+    host: '0.0.0.0',
     hot: true,
     client: {
       overlay: {
@@ -77,12 +87,11 @@ plugins: [
         warnings: false,
       },
     },
-    proxy: {
-      '/api': {
-        target: 'http://localhost:3000',
-        changeOrigin: true,
-      },
-    },
+    proxy: [{
+      context: ['/api'],
+      target: 'http://localhost:3000',
+      changeOrigin: true,
+    }],
     historyApiFallback: true,
   },
   experiments: {

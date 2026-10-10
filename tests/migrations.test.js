@@ -6,7 +6,7 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import { join, dirname } from 'node:path';
-import { existsSync, readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
+import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
@@ -65,7 +65,7 @@ describe('Migraciones — idempotencia y checksum', () => {
 
   it('detecta archivo ya aplicado con contenido cambiado (falla con mensaje claro)', async () => {
     // Buscar un archivo de migración ya aplicado (el primero)
-    const files = readFileSync(MIGRATIONS_DIR, 'utf8').split('\n').filter(f => f.endsWith('.sql')).sort();
+    const files = readdirSync(MIGRATIONS_DIR).filter(f => f.endsWith('.sql')).sort();
     if (files.length === 0) {
       console.log('  ⚠ No migration files found, skipping');
       return;
@@ -74,30 +74,32 @@ describe('Migraciones — idempotencia y checksum', () => {
     const firstMigration = files[0];
     const migrationPath = join(MIGRATIONS_DIR, firstMigration);
     const originalContent = readFileSync(migrationPath, 'utf8');
+    const oldEnv = { ...process.env };
     
     try {
       // Modificar el archivo (agregar un comentario)
       writeFileSync(migrationPath, originalContent + '\n-- MODIFICADO PARA TEST\n');
       
       // Intentar correr migraciones → debe fallar
-      const oldEnv = { ...process.env };
       process.env.DATABASE_URL = TEST_DB_URL;
       process.env.MIGRATE_LOCK_TIMEOUT_MS = '5000';
       
-      let threw = false;
+      let output = '';
+      const originalError = console.error;
       try {
-        await runMigrate();
-      } catch (err) {
-        threw = true;
-        const msg = err.message || String(err);
-        assert.ok(msg.includes('ya fue aplicado pero su contenido cambió') || msg.includes('checksum'),
-          `Error message should mention checksum/changed content: ${msg}`);
+        console.error = (...args) => {
+          output += `${args.join(' ')}\n`;
+        };
+        const code = await runMigrate();
+        assert.equal(code, 1, 'Changed applied migration should fail');
+        assert.match(output, /checksum|su contenido cambió/i);
+      } finally {
+        console.error = originalError;
       }
-      
-      assert.ok(threw, 'Should have thrown on changed migration');
     } finally {
       // Restaurar archivo original
       writeFileSync(migrationPath, originalContent);
+      process.env = oldEnv;
     }
   });
 

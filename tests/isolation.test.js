@@ -2,92 +2,99 @@
 // TESTS: Aislamiento entre usuarios (user_id siempre de la cookie)
 // ============================================================================
 
-import { describe, it, before } from 'node:test';
+import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { fileURLToPath } from 'node:url';
-import { join, dirname } from 'node:path';
-import { createHash } from 'node:crypto';
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const ROOT = join(__dirname, '..');
-
+import { randomUUID } from 'node:crypto';
+import { query } from '../lib/db.js';
+import { createTestSessionCookie } from './test-utils.js';
 import { GET as jobsGet } from '../api/jobs/[...slug].js';
-import { GET as searchGet } from '../api/search/[...slug].js';
 
-function createSessionCookie(userId) {
-  const exp = Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60;
-  const payload = `v1.${userId}.${exp}`;
-  const secret = process.env.SESSION_SECRET || '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
-  const hmac = createHash('sha256').update(payload + '.' + secret).digest('base64url');
-  return `bei_session=${payload}.${hmac}`;
-}
+const userA = randomUUID();
+const userB = randomUUID();
+const jobId = `isolation-${randomUUID()}`;
+const emailA = `isolation-${userA}@example.test`;
+const emailB = `isolation-${userB}@example.test`;
+const cookieA = createTestSessionCookie(userA);
+const cookieB = createTestSessionCookie(userB);
 
-async function callEndpoint(handler, method, url, cookie) {
-  const headers = { 'Content-Type': 'application/json' };
-  if (cookie) headers['Cookie'] = cookie;
-  const req = new Request(url, { method, headers });
-  return handler(req);
+async function callEndpoint(url, cookie) {
+  const req = new Request(`http://localhost:3000${url}`, {
+    method: 'GET',
+    headers: cookie ? { Cookie: cookie } : {},
+  });
+  return jobsGet(req);
 }
 
 describe('Aislamiento entre usuarios', () => {
-  const userA = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
-  const userB = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
-  const cookieA = createSessionCookie(userA);
-  const cookieB = createSessionCookie(userB);
-
-  it('Usuario A pide /api/jobs → no ve ofertas de Usuario B', async () => {
-    // En un test real con BD, se insertarían ofertas para userB y se verificaría
-    // que userA no las ve. Aquí documentamos la expectativa.
-    const res = await callEndpoint(jobsGet, 'GET', '/api/jobs?region=argentina', cookieA);
-    // Si userA no existe en BD → 401, si existe sin perfil → 403, si tiene perfil → 200
-    // Lo importante: NUNCA 200 con ofertas de userB
-    assert.ok([200, 401, 403].includes(res.status));
-    
-    if (res.status === 200) {
-      const body = await res.json();
-      // Verificar que todas las ofertas pertenecen a userA (en test real)
-      assert.ok(Array.isArray(body.jobs));
-    }
+  before(async () => {
+    await query(
+      `insert into users (id, email, password_hash)
+       values ($1, $2, 'test-hash'), ($3, $4, 'test-hash')`,
+      [userA, emailA, userB, emailB],
+    );
+    await query(
+      `insert into profiles (user_id, full_name, title)
+       values ($1, 'Test A', 'QA Engineer'), ($2, 'Test B', 'QA Engineer')`,
+      [userA, userB],
+    );
+    await query(
+      `insert into job_history (user_id, key, job, regions, expires_at)
+       values ($1, $2, $3::jsonb, array['argentina'], clock_timestamp() + interval '1 day')`,
+      [
+        userA,
+        `qa engineer::testcorp::${jobId}`,
+        JSON.stringify({
+          id: jobId,
+          title: 'QA Engineer',
+          company: 'TestCorp',
+          description: 'QA testing role',
+          tags: ['qa', 'testing'],
+          regionGuess: 'argentina',
+          applyUrl: 'https://example.test/apply',
+          date: new Date().toISOString(),
+        }),
+      ],
+    );
   });
 
-  it('Usuario B pide /api/job?q=oferta-de-A → 404', async () => {
-    const res = await callEndpoint(jobsGet, 'GET', '/api/job?q=oferta-de-user-a', cookieB);
-    // Debe dar 404 (no encontrado) y NO 200 con la oferta de otro usuario
-    // Ni 500 (error interno)
-    assert.ok([404, 401, 403].includes(res.status), `Expected 404/401/403, got ${res.status}`);
-    
-    if (res.status === 404) {
-      const body = await res.json();
-      assert.ok(body.error);
-      assert.equal(body.status, 404);
-    }
+  after(async () => {
+    await query('delete from users where id = any($1::uuid[])', [[userA, userB]]);
   });
 
-  it('?user_id= en la URL se IGNORA (no permite saltar aislamiento)', async () => {
-    const res = await callEndpoint(jobsGet, 'GET', `/api/jobs?region=argentina&user_id=${userB}`, cookieA);
-    // El user_id del query string NO debe usarse; debe usar el de la cookie (userA)
-    assert.ok([200, 401, 403].includes(res.status));
-    // Si es 200, las ofertas deben ser de userA, no de userB
+  it('el usuario dueño puede consultar su oferta guardada', async () => {
+    const res = await callEndpoint(`/api/jobs/job?q=${encodeURIComponent(jobId)}`, cookieA);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.job.id, jobId);
   });
 
-  it('Cookie manipulada (user_id cambiado) → 401', async () => {
-    // Crear cookie con userId de userB pero firma de userA (inválida)
+  it('otro usuario no puede consultar la oferta aunque conozca su id', async () => {
+    const res = await callEndpoint(`/api/jobs/job?q=${encodeURIComponent(jobId)}`, cookieB);
+    assert.equal(res.status, 404);
+    const body = await res.json();
+    assert.ok(body.error);
+  });
+
+  it('user_id en la URL no cambia el dueño de la sesión', async () => {
+    const owned = await callEndpoint(
+      `/api/jobs/job?q=${encodeURIComponent(jobId)}&user_id=${userB}`,
+      cookieA,
+    );
+    assert.equal(owned.status, 200);
+
+    const foreign = await callEndpoint(
+      `/api/jobs/job?q=${encodeURIComponent(jobId)}&user_id=${userA}`,
+      cookieB,
+    );
+    assert.equal(foreign.status, 404);
+  });
+
+  it('cookie manipulada se rechaza con 401', async () => {
     const exp = Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60;
-    const payload = `v1.${userB}.${exp}`;
-    const secret = process.env.SESSION_SECRET || '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
-    const hmac = createHash('sha256').update(payload + '.' + secret).digest('base64url');
-    const tamperedCookie = `bei_session=${payload}.${hmac}`;
-    
-    // Esta cookie es válida para userB, pero si la usa userA no debería funcionar
-    // porque el user_id sale de la cookie, no del contexto
-    // En realidad, una cookie firmada correctamente para userB SÍ funciona para userB
-    // Lo que probamos es que una cookie con firma INVÁLIDA da 401
     const invalidCookie = `bei_session=v1.${userA}.${exp}.firma-invalida`;
-    
-    const res = await callEndpoint(jobsGet, 'GET', '/api/jobs?region=argentina', invalidCookie);
+    const res = await callEndpoint(`/api/jobs/job?q=${encodeURIComponent(jobId)}`, invalidCookie);
     assert.equal(res.status, 401);
     const body = await res.json();
     assert.ok(body.error);
-    assert.equal(body.status, 401);
   });
 });

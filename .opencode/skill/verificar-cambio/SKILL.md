@@ -38,9 +38,9 @@ curl -fsS localhost:3000/api/directorio     # sin sesión, si quedó público
 - **El login y el CV son dos etapas separadas** (ver `MEMORIA.md` §4.1). Para probar
   `/api/jobs` no alcanza con tener cookie: hace falta también el perfil, o devuelve **403**.
   Un 403 ahí no es un bug de sesión, es el código correcto.
-- `npm run dev` **no levanta el backend**: es solo Vite en el 5173. Para tocar `/api` usá
+- `npm run dev` **no levanta el backend**: es solo Rspack en el 5173. Para tocar `/api` usá
   `npx vercel dev`, o levantá el server a mano.
-- El proxy de `/api` de Vite apunta a `localhost:3000`.
+- El proxy de `/api` del servidor Rspack apunta a `localhost:3000`.
 
 ## NUNCA llamar a `/api/linkedin-search`
 

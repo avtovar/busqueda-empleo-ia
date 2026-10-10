@@ -13,12 +13,12 @@
 //   En el proyecto origen las regiones estaban repetidas en 5 archivos (este
 //   `REGION_LOCATION` era uno de ellos) y agregar un país obligaba a editar los 5;
 //   el punto 9 del pedido pide exactamente una fuente de verdad, que es lo que
-//   `api/lib/regions.js` es. Es JS puro, sin dependencias de Node, así que el
+//   `lib/regions.js` es. Es JS puro, sin dependencias de Node, así que el
 //   bundler lo puede leer tal cual.
 import { REGIONS } from '../../lib/regions.js';
 // ↑ OJO al path: `utils.js` vive en `frontend/src/`, así que `../..` sale del
-//   workspace de Vite y llega a la raíz del repo, que es donde está `api/`.
-//   El build de Vite resuelve imports fuera del root sin problema, pero si algún
+//   workspace del frontend y llega a la raíz del repo, donde está `lib/`.
+//   Rspack resuelve imports fuera del root sin problema, pero si algún
 //   día rompe, la salida es este archivo duplicando SOLO la clave de Argentina:
 //   el resto de las funciones de acá no dependen de este import.
 
@@ -643,7 +643,7 @@ export function linkedinProfileKeywords(profile) {
 }
 
 // La búsqueda de LinkedIn y la de las consultoras NO viven más acá: se mudaron a
-// `api/lib/directorio.js` (donde estaban en las líneas 636 y 657). Motivo: el backend
+// `lib/directorio.js` (donde estaban en las líneas 636 y 657). Motivo: el backend
 // las necesita para armar el catálogo del punto 11, y una URL de búsqueda que se
 // arma en dos archivos es una URL que algún día deja de coincidir consigo misma.
 // Reexportar en vez de duplicar deja a los tres consumidores (`Toolbar.jsx`,
@@ -652,7 +652,7 @@ export function linkedinProfileKeywords(profile) {
 // frontend: era el helper del `ConsultorasList.jsx` que se borró en el paso 3, y
 // ahora lo usa el backend.
 export { linkedinSearchUrl } from '../../lib/directorio.js';
-// ↑ OJO al path: dos `..` desde `frontend/src/` salen del workspace de Vite y
+// ↑ OJO al path: dos `..` desde `frontend/src/` salen del workspace del frontend y
 //   llegan a la raíz del repo. Es el mismo import que hace `REGIONS` arriba, y por
 //   el mismo motivo: que el patrón de URL de LinkedIn tenga UNA sola definición, en
-//   `api/lib/`.
+//   `lib/`.

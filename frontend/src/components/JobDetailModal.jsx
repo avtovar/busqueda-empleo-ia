@@ -84,7 +84,7 @@ export default function JobDetailModal({ job, summary, region, profile, onClose,
   //   así que `langIsEn` hoy siempre da false y la UI se muestra en castellano.
   //   Se conserva la rama en inglés en vez de borrarla porque, si algún día se
   //   agrega un país de habla inglesa, el idioma tiene que salir de `lang` en
-  //   `api/lib/regions.js` (la config ya lo tiene por región) y no de una
+  //   `lib/regions.js` (la config ya lo tiene por región) y no de una
   //   comparación escrita a mano acá. Ese cambio es su propio paso.
 
   const wanted = s.requiredSkills || [];

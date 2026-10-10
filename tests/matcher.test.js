@@ -58,7 +58,7 @@ describe('matcher.js — computeMatch', () => {
       const result = computeMatch(job, emptyProfile);
       assert.equal(result.score, 0, `Empty profile vs ${job.title}: expected 0, got ${result.score}`);
       assert.deepEqual(result.matched, []);
-      assert.deepEqual(result.missing, []);
+      assert.deepEqual(result.missed, []);
     }
   });
 
@@ -68,12 +68,12 @@ describe('matcher.js — computeMatch', () => {
     assert.ok(result.score >= 0 && result.score <= 100, `Score ${result.score} out of bounds`);
   });
 
-  it('matched y missing son arrays de strings (nombres de skills)', () => {
+  it('matched y missed son arrays de strings (nombres de skills)', () => {
     const job = TEST_JOBS[0];
     const result = computeMatch(job, qaProfile);
     assert.ok(Array.isArray(result.matched));
-    assert.ok(Array.isArray(result.missing));
-    for (const s of [...result.matched, ...result.missing]) {
+    assert.ok(Array.isArray(result.missed));
+    for (const s of [...result.matched, ...result.missed]) {
       assert.ok(typeof s === 'string', `Expected string, got ${typeof s}: ${s}`);
     }
   });
@@ -89,7 +89,7 @@ describe('matcher.js — computeMatch', () => {
 describe('matcher.js — rankByRegion', () => {
   it('ordena por score descendente', () => {
     const profile = TEST_PROFILES.qa;
-    const ranked = rankByRegion(TEST_JOBS, profile, 'argentina');
+    const ranked = rankByRegion(TEST_JOBS, profile).argentina;
     for (let i = 1; i < ranked.length; i++) {
       assert.ok(ranked[i - 1].score >= ranked[i].score,
         `Ranking not descending at index ${i}: ${ranked[i - 1].score} < ${ranked[i].score}`);
@@ -100,13 +100,13 @@ describe('matcher.js — rankByRegion', () => {
     // Crear dos ofertas con mismo score pero fechas distintas
     const jobA = { ...TEST_JOBS[0], id: 'tie-a', date: new Date().toISOString() };
     const jobB = { ...TEST_JOBS[0], id: 'tie-b', date: new Date(Date.now() - 86400000).toISOString() };
-    const ranked = rankByRegion([jobA, jobB], TEST_PROFILES.qa, 'argentina');
+    const ranked = rankByRegion([jobA, jobB], TEST_PROFILES.qa).argentina;
     assert.equal(ranked[0].id, 'tie-a', 'Newer job should come first on tie');
   });
 
   it('filtra ofertas con score 0', () => {
     const profile = TEST_PROFILES.qa;
-    const ranked = rankByRegion(TEST_JOBS, profile, 'argentina');
+    const ranked = rankByRegion(TEST_JOBS, profile).argentina;
     for (const job of ranked) {
       assert.ok(job.score > 0, `Job ${job.id} has score 0 but should be filtered`);
     }
@@ -114,17 +114,17 @@ describe('matcher.js — rankByRegion', () => {
 
   it('devuelve array vacío si ninguna oferta pasa el filtro', () => {
     const ranked = rankByRegion(TEST_JOBS, TEST_PROFILES.vacio, 'argentina');
-    assert.deepEqual(ranked, []);
+    assert.deepEqual(ranked, { argentina: [] });
   });
 
   it('añade campos de match (score, matched, missing) a cada oferta', () => {
-    const ranked = rankByRegion(TEST_JOBS, TEST_PROFILES.qa, 'argentina');
+    const ranked = rankByRegion(TEST_JOBS, TEST_PROFILES.qa).argentina;
     for (const job of ranked) {
       assert.ok('score' in job);
       assert.ok('matched' in job);
-      assert.ok('missing' in job);
+      assert.ok('missed' in job);
       assert.ok(Array.isArray(job.matched));
-      assert.ok(Array.isArray(job.missing));
+      assert.ok(Array.isArray(job.missed));
     }
   });
 });

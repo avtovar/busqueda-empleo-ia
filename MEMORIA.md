@@ -7,7 +7,11 @@ tabla de la API y qué falta); acá queda lo que **no se deduce del código**: e
 el diagnóstico del código heredado con su evidencia, las decisiones que se tomaron y lo que
 quedó abierto.
 
-Última actualización real: **2026-10-08** (FASE 3 completada: favoritos, build con Rspack/SWC, typos corregidos). Las actualizaciones anteriores fueron el andamiaje, `regions.js`, el paso 4 de la base de datos completo, el paso 5 de auth, el paso 6 (perfil por usuario), el paso 7 (onboarding), la pantalla de acceso, directorio de Argentina, Apify/LinkedIn, borrado de cuenta, guía de despliegue Vercel.
+Última actualización real: **2026-10-09** (revisión de CI/tests y atomicidad del rate limit de login).
+Las actualizaciones anteriores fueron el andamiaje, `regions.js`, el paso 4 de la base de datos
+completo, el paso 5 de auth, el paso 6 (perfil por usuario), el paso 7 (onboarding), la pantalla
+de acceso, directorio de Argentina, Apify/LinkedIn, borrado de cuenta, guía de despliegue Vercel,
+favoritos y build con Rspack/SWC.
 
 ---
 
@@ -25,21 +29,20 @@ El traspaso quedó el **2026-10-08**, con `npm run check` (9 archivos) y `npm ru
 
 | Paso | Qué | Por qué es el siguiente |
 |---|---|---|
-| 1 | **CI/CD completo** | GitHub Actions con guard anti-cobro Apify, secret scanning, tests con node:test, lint, audit |
-| 2 | **Deploy real a Vercel** | Requiere CI verde, tope de gasto en proveedores, `SESSION_SECRET` rotado |
-| 3 | **Recuperar clave / verificar correo** | Requiere proveedor de mail (SendGrid, Resend, etc.) |
-| 4 | **Seguimiento de postulaciones** | Tabla `favorites` existe, falta UI de estados (postulé/entrevista/oferta) + notas |
-| 5 | **Alertas semanales por correo** | Depende de proveedor de mail + preferencias de usuario |
-| 6 | **Exportar mis datos (portabilidad)** | Complemento natural del borrado, casi gratis (JSON del perfil) |
+| 1 | **Deploy real a Vercel** | Requiere CI verde, tope de gasto en proveedores y `SESSION_SECRET` configurado |
+| 2 | **Recuperar clave / verificar correo** | Requiere proveedor de mail (SendGrid, Resend, etc.) |
+| 3 | **Seguimiento de postulaciones** | Tabla `favorites` existe, falta UI de estados (postulé/entrevista/oferta) + notas |
+| 4 | **Alertas semanales por correo** | Depende de proveedor de mail + preferencias de usuario |
+| 5 | **Exportar mis datos (portabilidad)** | Complemento natural del borrado, casi gratis (JSON del perfil) |
 
-> **Nota**: El directorio de Argentina, Apify/LinkedIn, borrado de cuenta y favoritos **YA ESTÁN HECHOS**. Lo que queda es infraestructura (CI/CD, deploy, mail) y features de valor incremental.
+> **Nota**: CI con guard anti-cobro, lint, check, build, tests bloqueantes y audit informativo ya está configurado. El directorio de Argentina, Apify/LinkedIn, borrado de cuenta y favoritos **YA ESTÁN HECHOS**. Lo que queda es deploy real, mail y features de valor incremental.
 
 ### El único módulo del origen sin portar
 
-**Ninguno.** `apifyLinkedin.js` se portó como `api/lib/apifyLinkedin.js` + `api/linkedin-search.js` + `api/lib/apifyLimit.js`.
+**Ninguno.** `apifyLinkedin.js` se portó como `lib/apifyLinkedin.js` + `api/search/[...slug].js` + `lib/apifyLimit.js`; `/api/linkedin-search` es una ruta pública de Vercel rewrite.
 Los que hay que dejar atrás: `consultoras.js`, `consultorasStore.js`, `curatedJobs.js`, `demoData.js` (ver §3.6).
 
-**Ya portados**: `analytics.js`, `coverLetter.js` y `matcher.js` reescritos y parametrizados (paso 6); `cvProfile.js` **no se copió**, lo reemplaza `api/lib/profile.js`; en el paso 8 se portaron `jobSources.js`, `portal.js` y `history.js` a `api/lib/`, con `api/lib/jobs.js` como orquestador nuevo; en el paso 10 se portó `apifyLinkedin.js` como `api/lib/apifyLinkedin.js` + `api/linkedin-search.js` + `api/lib/apifyLimit.js`.
+**Ya portados**: `analytics.js`, `coverLetter.js` y `matcher.js` reescritos y parametrizados (paso 6); `cvProfile.js` **no se copió**, lo reemplaza `lib/profile.js`; en el paso 8 se portaron `jobSources.js`, `portal.js` y `history.js` a `lib/`, con `lib/jobs.js` como orquestador nuevo; en el paso 10 se portó `apifyLinkedin.js` como `lib/apifyLinkedin.js` + `api/search/[...slug].js` + `lib/apifyLimit.js`.
 
 ### Los dos avisos para cuando se retome
 
@@ -49,6 +52,36 @@ Los que hay que dejar atrás: `consultoras.js`, `consultorasStore.js`, `curatedJ
 > **Ojo con el nombre**: este archivo existe también en el origen (`F:\busqueda_trabajo`), pero **no se copió**: aquel era andamiaje de trabajo del proyecto anterior. Este es nuevo.
 
 ---
+
+## Revisión de rate limit, tests y CI (2026-10-09)
+
+- El login antes separaba la lectura del contador y la escritura del intento: requests
+  concurrentes podían superar el límite. `withLoginAttempt()` toma un advisory lock por IP y
+  mantiene en una transacción la comprobación, el resultado de bcrypt y el registro/limpieza.
+  Esa serialización por IP es deliberada; no se deja un contador en memoria porque Vercel es
+  serverless.
+- El timestamp del rate limit usa `clock_timestamp()` en vez de `now()`: la transacción puede
+  esperar el lock, y `now()` representaría el inicio anterior a la espera. La ventana debe
+  medirse al momento de ejecutar la consulta/escritura.
+- Los tests de sesión deben firmar con HMAC-SHA256 igual que producción; un SHA-256 de
+  `payload + secret` producía cookies inválidas y hacía que las pruebas parecieran ejercitar
+  compuertas aunque todas se rechazaban antes. `tests/test-utils.js` centraliza esa firma.
+- Los handlers consolidados se prueban con las rutas concretas de su catch-all. Las rutas
+  cortas de compatibilidad (`/api/login`, `/api/jobs`, etc.) las agrega `vercel.json`; una
+  llamada directa a un handler no pasa por esos rewrites.
+- La prueba de aislamiento siembra dos usuarios, sus perfiles y una oferta solo para el
+  primero; el dueño obtiene 200 y el otro 404 incluso si intenta forzar `user_id` en la URL.
+  Así no depende de proveedores de ofertas ni pasa solo porque una cookie apunta a un usuario
+  inexistente.
+- Las migraciones fallidas retornan código `1` desde `main()` y no lanzan la excepción al
+  llamador; la prueba de checksum cambiado verifica ese contrato y captura el mensaje.
+- El job de tests de CI es bloqueante. El audit npm es informativo por ahora: reporta
+  vulnerabilidades high/critical sin bloquear el build.
+
+Verificación de esta revisión: los **63 tests pasan** usando la base local aislada indicada
+por el entorno de test y con las migraciones aplicadas; nunca usar una base productiva. También
+pasaron `npm run check` (32 archivos), ESLint con `--max-warnings=0` y `npm run build`. Los
+tests no llaman Apify ni un LLM real; el test de CV usa un proveedor falso local.
 
 ## Decisiones de arquitectura (ADRs)
 

@@ -21,7 +21,7 @@
 //     la base, el deploy fallaría por un Neon que todavía está retomando
 //     conexiones, y nadie sabría si el código estaba bien.
 //
-//   · `api/lib/db.js` está construido para que importar el módulo NO abra
+//   · `lib/db.js` está construido para que importar el módulo NO abra
 //     conexión: el pool se crea la primera vez que alguien consulta. Acá la
 //     garantía es más fuerte, porque no depende de una promesa: este endpoint
 //     NO importa nada del proyecto (ni `sendJson`, ni `db.js`, ni `auth.js`).

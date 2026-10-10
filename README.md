@@ -62,12 +62,13 @@ demuestra es que el match se calcula **de verdad contra el perfil** y no devuelv
 número constante — si devolviera lo mismo para todos, los tres perfiles darían lo
 mismo.
 
-La forma de resolverlo es agregar bolsas que cubran el mercado local, que es
-justamente lo que está pendiente (ver [`/api/linkedin-search`](#los-dos-servicios-que-cuestan-plata)).
+La forma de mejorar esa cobertura es agregar bolsas con más avisos en español. LinkedIn ya
+está disponible como búsqueda automatizada, pero usa Apify y se factura (ver
+[`/api/linkedin-search`](#los-dos-servicios-que-cuestan-plata)).
 
 ## Cómo correrlo
 
-Necesitás **Node 20 o superior** y un **Postgres**.
+Necesitás **Node 20.19 o superior** y un **Postgres**.
 
 ```bash
 git clone https://github.com/avtovar/busqueda-empleo-ia.git
@@ -81,10 +82,10 @@ Después:
 
 ```bash
 npx vercel dev          # backend real (funciones serverless) en :3000
-npm run dev             # frontend con Vite en :5173, proxea /api a :3000
+npm run dev             # frontend con Rspack en :5173, proxea /api a :3000
 ```
 
-`npm run dev` **no levanta el backend**: es solo Vite. Para tocar `/api` de verdad,
+`npm run dev` **no levanta el backend**: es solo Rspack. Para tocar `/api` de verdad,
 `npx vercel dev` o levantá un server a mano.
 
 > `npx vercel` y no `vercel dev` a propósito: la CLI de Vercel **no** es una
@@ -162,6 +163,8 @@ que decide si el frontend cae en la pantalla de acceso (401), en el onboarding d
 | `GET` | `/api/analytics` | **`requireProfile`** | Analítica de mercado. Sin parámetros y **sin `force`**, por costo |
 | `POST` | `/api/linkedin-search` | `requireProfile` | Búsqueda LinkedIn real vía Apify. **Se factura**. Rate limit diario `apify_usage` + `APIFY_DAILY_LIMIT`. `buildProfileKeywords` generalizado (sin regex QA). |
 | `GET` | `/api/directorio` | `requireProfile` | `{ region, keyword, terms, bolsas, consultoras }`. Cada entrada con `searchUrl` + `searchKind: 'sitio' | 'google' | 'ninguno'`. No scrapea: abre búsquedas prellenadas |
+| `GET` | `/api/favorites` | `requireProfile` | `{ favorites }`, ofertas guardadas por el usuario autenticado |
+| `POST` | `/api/favorites` | `requireProfile` | `{ ok: true, saved }`. Alterna guardar/quitar una oferta usando `{ key, job }` |
 
 Cinco cosas de esa tabla que no se deducen leyendo los handlers:
 
@@ -208,7 +211,7 @@ api/                    funciones serverless (una por endpoint), Node ESM
     rateLimit.js        el límite de intentos de login (tabla `login_attempts`)
     text.js             helpers puros de texto, compartidos por matcher y los otros
     directorio.js       catálogo de bolsas/consultoras + armado de URLs (paso 9)
-frontend/src/           React 18 + Vite
+frontend/src/           React 18 + Rspack/SWC
   components/
     DeleteAccountModal.jsx  la confirmación escrita del borrado
     BorrarCuentaZona.jsx    el aviso "borrar mi cuenta" (CV panel y compuerta)
@@ -264,10 +267,10 @@ El único endpoint que llama a un LLM, y se paga por token con `LLM_API_KEY`.
 - El límite vive en la tabla `cv_parses`, con `CV_PARSE_LIMIT` (5 por hora). **Subirlo
   sube el costo por cuenta de forma lineal.**
 
-### Apify (LinkedIn) — todavía no implementado
+### Apify (LinkedIn) — implementado, con costo
 
-Cada búsqueda **ejecuta un actor y se factura**. Por eso `/api/linkedin-search`
-todavía **no está escrito**, y por eso los otros endpoints no lo mencionan.
+Cada búsqueda **ejecuta un actor y se factura**. El endpoint `/api/linkedin-search`
+está implementado y protegido por un límite diario por usuario y un tope global.
 
 - **Nunca lo invoques para "verificar que anda".** Los demás endpoints son gratis y
   verifican lo mismo.
@@ -279,18 +282,19 @@ todavía **no está escrito**, y por eso los otros endpoints no lo mencionan.
 
 ## Verificación
 
-No hay linter, ni formateador, ni typecheck, ni framework de tests. **No los
-agregues a propósito:** la verificación es manual y son tres pasos.
-
 ```bash
-npm run check    # node --check sobre cada .js de api/ y scripts/  → "OK: 8 archivos"
-npm run build    # vite build → frontend/dist, y valida los .jsx    → 50 módulos
+npm run check    # node --check sobre cada .js de api/, lib/ y scripts/
+npm run lint     # ESLint + reglas de accesibilidad sobre el frontend
+npm run build    # Rspack/SWC → frontend/dist, y valida los .jsx
+npm test         # node:test; requiere Postgres con las migraciones aplicadas
 curl -fsS localhost:3000/api/health
 ```
 
 `npm run check` **no ejecuta código**: solo parsea, así que es seguro correrlo contra
 archivos que leen variables de entorno. `npm run build` es obligatorio cuando tocaste
-`frontend/src`, porque es lo único que valida JSX y detecta imports rotos.
+`frontend/src`, porque valida JSX y detecta imports rotos. La suite usa un Postgres de
+prueba y nunca debe apuntar a datos de producción; las llamadas al LLM se dirigen a un
+servidor falso local y las pruebas no invocan Apify.
 
 Lo que se puede probar sin sesión es `/api/health`, `/api/register` y `/api/login`.
 **Los 6 endpoints de ofertas piden cookie y perfil**: sin cookie dan `401`, y con
@@ -326,4 +330,4 @@ como es, no qué hace. Si cambiás algo, los dos se actualizan en el mismo commi
 
 ---
 
-Argentina · React 18 + Vite · funciones serverless de Vercel · Postgres
+Argentina · React 18 + Rspack/SWC · funciones serverless de Vercel · Postgres

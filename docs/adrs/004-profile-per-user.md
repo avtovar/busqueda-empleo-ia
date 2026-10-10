@@ -9,7 +9,7 @@ El proyecto original tenía un `const PROFILE` global en `cvProfile.js` con dato
 ## Decisión
 - **El perfil es un parámetro, no un import**. `computeMatch(job, profile)`, `rankByRegion(jobs, profile)`, `generateCoverLetter(job, region, profile)`, `buildAnalytics(profile, jobs)` — todos reciben el perfil como argumento obligatorio (sin default).
 - **Fuente de verdad**: Tabla `profiles` + tabla `skills` (una fila por skill con `weight` numeric).
-- **Normalización**: `api/lib/profile.js` expone `loadProfile(userId)` → `normalizeProfile(row, skillRows)` → objeto del contrato API (`skills: [{name, weight}]` array, pesos numéricos).
+- **Normalización**: `lib/profile.js` expone `loadProfile(userId)` → `normalizeProfile(row, skillRows)` → objeto del contrato API (`skills: [{name, weight}]` array, pesos numéricos).
 - **Forma canónica**: `skills` es **array** `[{name, weight}]` (pesos numéricos 0-1), no mapa `{qa: 1}`. El LLM devuelve array; la BD guarda filas; `profile.js:normalizeSkills()` convierte mapa → array si llega forma vieja.
 - **Lugares donde estaba hardcodeado (ya resueltos)**:
   - `matcher.js:56` → `computeMatch(job, profile)` (ya parametrizado)
@@ -17,7 +17,7 @@ El proyecto original tenía un `const PROFILE` global en `cvProfile.js` con dato
   - `apifyLinkedin.js` → `buildProfileKeywords(profile)` (regex QA eliminado)
   - `coverLetter.js` → `generateCoverLetter(job, region, profile)`
   - `frontend/src/api.js` → `FALLBACK.profile` eliminado
-  - `api/lib/profile.js` → nuevo, reemplaza a `cvProfile.js`
+  - `lib/profile.js` → nuevo, reemplaza a `cvProfile.js`
 
 ## Consecuencias
 - ✅ Mismo código rankea para contador, enfermera, QA, etc.

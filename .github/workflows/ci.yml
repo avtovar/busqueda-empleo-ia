@@ -119,15 +119,14 @@ jobs:
         run: npm run build
 
 # ══════════════════════════════════════════════════════════════════════════
-  # 3. TESTS CON POSTGRES + LLM FALSO (needs: lint-check-build) — NO BLOQUEANTES
+  # 3. TESTS CON POSTGRES + LLM FALSO (bloqueantes)
   # ═════════════════════════════════════════════════════════════════════════
-  # ⚠️ Tests tienen issues conocidos (ver tests/README.md). No bloquean el deploy.
+  # Los tests son un gate de CI: un error debe bloquear el merge/deploy.
   # ═════════════════════════════════════════════════════════════════════════
   tests:
-    name: Tests (Postgres + LLM falso) — NO BLOQUEANTES
+    name: Tests (Postgres + LLM falso)
     runs-on: ubuntu-latest
     needs: lint-check-build
-    continue-on-error: true  # No bloquear deploy por tests fallando
     services:
       postgres:
         image: postgres:16-alpine

@@ -27,7 +27,7 @@ dolor, no para que las soportes.
 ### Lo que se hereda
 Del origen entran `matcher.js` (`computeMatch`), `coverLetter.js` (cartas de presentación),
 `history.js` (historial, su lógica de deduplicado y expiración), `portal.js` (`withPortal`),
-`analytics.js`, `jobSources.js` (bolsas gratis) y el frontend React 18 + Vite completo
+`analytics.js`, `jobSources.js` (bolsas gratis) y el frontend React 18 compilado con Rspack/SWC
 (`App.jsx`, `utils.js`, los 9 componentes).
 
 **Ojo con la palabra "intacto": hoy ninguno de esos está igual.** `matcher.js`,
@@ -46,19 +46,20 @@ reutilizables para un usuario genérico — borrarlas o vaciarlas, no "adaptarla
 
 ## Comandos
 
-No hay linter, ni formateador, ni typecheck, ni framework de tests. **No los agregues**:
-la verificación es manual (abajo).
+Hay ESLint, `node:test` y un chequeo de sintaxis. No hay formateador ni typecheck.
 
 ```bash
 npm install                    # instala TODO (raíz + frontend, ver workspaces más abajo)
 npm run check                  # node --check sobre cada .js de api/ y scripts/
-npm run build                  # vite build -> frontend/dist
+npm run build                  # Rspack/SWC -> frontend/dist
+npm run lint                   # ESLint en frontend/src
+npm test                       # node:test; requiere Postgres con migraciones
 npm run migrate                # aplica migrations/*.sql contra DATABASE_URL
-npm run dev                    # vite en 5173, con proxy /api -> localhost:3000
+npm run dev                    # Rspack en 5173, con proxy /api -> localhost:3000
 npx vercel dev                 # serverless local: usa esto para probar /api de verdad
 ```
 
-`npm run dev` **no levanta el backend**: es solo Vite. Para tocar `/api`, o `npx vercel dev`,
+`npm run dev` **no levanta el backend**: es solo Rspack. Para tocar `/api`, o `npx vercel dev`,
 o levantá el server a mano. El proxy de `/api` va a `localhost:3000`.
 
 `npx vercel dev` y no `vercel dev` a propósito: **la CLI de Vercel NO es una dependencia del
@@ -75,7 +76,7 @@ Volver a correr `npm run migrate` sobre una base ya migrada no hace nada y sale 
 
 La raíz declara `"workspaces": ["frontend"]`. No es un detalle: **en Vercel solo se ejecutan
 las instrucciones de la raíz**, así que si `frontend` fuera una carpeta independiente,
-`vite` no estaría instalado y el `buildCommand` fallaría en cada deploy.
+las dependencias del frontend no estarían instaladas y el `buildCommand` fallaría en cada deploy.
 
 Consecuencia práctica: `npm install` en la raíz instala las dependencias de los dos lados y
 **no existe `frontend/node_modules`** (todo queda hoisted en el `node_modules` raíz). Si
@@ -83,17 +84,19 @@ algún día agregás una dependencia al frontend, la instalás desde la raíz, n
 
 ### `npm run check` no mira los `.jsx`
 
-`node --check` no sabe parsear JSX, así que `scripts/check.js` solo recorre los `.js` de
-`api/` y `scripts/`. **Los `.jsx` los valida el build de Vite**, que además detecta imports
-rotos. Por eso `npm run build` es obligatorio cuando tocaste `frontend/src`.
+`node --check` no sabe parsear JSX, así que `scripts/check.js` recorre los `.js` de
+`api/`, `lib/` y `scripts/`. **Los `.jsx` los valida el build de Rspack/SWC**, que además
+detecta imports rotos. Por eso `npm run build` es obligatorio cuando tocaste `frontend/src`.
 
 ## Verificación (es lo único que hay)
 
 ```bash
 npm run check                                  # 1. sintaxis de api/ y scripts/
-npm run build                                  # 2. que el JSX compila (detecta imports rotos)
+npm run lint                                   # 2. ESLint + accesibilidad del frontend
+npm run build                                  # 3. que el JSX compila (detecta imports rotos)
+npm test                                       # suite con Postgres y LLM falso local
 
-# 3. que las funciones responden. /api/health NO toca la DB ni Apify: es el smoke test.
+# 4. que las funciones responden. /api/health NO toca la DB ni Apify: es el smoke test.
 curl -fsS localhost:3000/api/health
 curl -fsS localhost:3000/api/jobs               # 401 sin cookie; 403 con cookie y sin CV
 curl -fsS localhost:3000/api/directorio         # 401 sin cookie; 403 con cookie y sin CV
@@ -107,7 +110,8 @@ ofertas**: es el smoke test, y además el registro y el login son públicos. O s
 se puede probar sin sesión es `/api/health`, `/api/register` y `/api/login`; todo lo demás
 pide cookie, y lo que devuelve oferta además pide perfil.
 `/api/directorio` **existe** (es el paso 9: directorio de Argentina, sin scraping), y
-`/api/linkedin-search` todavía **no**: ver abajo, se factura.
+`/api/linkedin-search` también existe mediante rewrite al catch-all de búsqueda: ver abajo,
+se factura.
 
 `npm run check` **no ejecuta código**: solo parsea. Es seguro correrlo contra archivos que
 importan variables de entorno o abren conexiones.
@@ -175,13 +179,14 @@ Los tres servicios con costo tienen su propio límite, y los tres son tablas en 
 | Login | `login_attempts` (009) | log de intentos fallidos | `LOGIN_LIMIT*` |
 | LLM | `cv_parses` (010) | log de parseos por usuario | `CV_PARSE_LIMIT*` |
 
-**Lo que NO hay que hacer es reusar `rateLimit.js` para el LLM.** `assertLoginAllowed` cuenta
-intentos fallidos de autenticación: escribirle una fila por cada parseo deja al usuario sin
+**Lo que NO hay que hacer es reusar `rateLimit.js` para el LLM.** `withLoginAttempt` cuenta
+intentos fallidos de autenticación y mantiene el chequeo, bcrypt y registro bajo un lock por IP:
+escribirle una fila por cada parseo deja al usuario sin
 poder entrar 15 minutos después de 10 CVs, y consultarlo sin escribir da un contador en cero
-justo para el atacante. El módulo nuevo es `api/lib/cvParseLimit.js`, y el porqué entero está
+justo para el atacante. El módulo nuevo es `lib/cvParseLimit.js`, y el porqué entero está
 en su cabecera.
 
-Ojo con el **orden** en `api/cv/parse.js`: `requireSession` → validar archivo y extraer texto
+Ojo con el **orden** en `api/profile/[...slug].js`: `requireSession` → validar archivo y extraer texto
 → **`assertCvParseAllowed`** → LLM. Lo que se rechaza antes de esa línea no costó tokens, así
 que no tiene por qué consumir cuota. Y el `await` del rate limit **no contiene** la llamada al
 LLM: la transacción se committea antes de esperar al proveedor, o dos requests del mismo
@@ -200,7 +205,7 @@ persona (Ali Tovar, QA) y lo importaban todos. **Los 6 lugares están resueltos 
 | `apifyLinkedin.js:89` | `buildProfileKeywords()` leía `PROFILE.keywords` y **filtraba por regex de QA** | **Todavía NO portado** (es el paso 10). El regex `/(qa\|quality\|test\|automation\|sdet)/i` está para Tirar: para un contador o una enfermera devuelve una query vacía. Los keywords tienen que venir del perfil. |
 | `coverLetter.js:75` | `generateCoverLetter(job, regionKey)` interpolaba `fullName`/`yearsExperience` del global | `generateCoverLetter(job, regionKey, profile)` (`:336`) y `summarize(job, profile)` (`:121`). Sin perfil la carta sale sin firma. |
 | `frontend/src/api.js:22` | `FALLBACK.profile` era un perfil falso de Ali | **Borrado** en el paso 3. `loadProfile()` devuelve `null` sin perfil. |
-| `api/lib/profile.js` (nuevo) | — | Es el que reemplaza al `cvProfile.js`: `loadProfile(userId)` lee `profiles` + `skills` **siempre** por `user_id`, y `normalizeProfile(row, skillRows)` convierte la fila cruda (snake_case) al contrato de la API. |
+| `lib/profile.js` (nuevo) | — | Es el que reemplaza al `cvProfile.js`: `loadProfile(userId)` lee `profiles` + `skills` **siempre** por `user_id`, y `normalizeProfile(row, skillRows)` convierte la fila cruda (snake_case) al contrato de la API. |
 
 **El perfil es un parámetro, no un import.** Si escribís un módulo nuevo que necesite
 perfil, que lo reciba. Importar `profile.js` está bien para `emptyProfile()` y los helpers
@@ -272,15 +277,15 @@ fuente nueva escribe por su cuenta**: todo pasa por ahí. Su lógica de `keyOf`,
 `normalizeKey`, `expireOldJobs` y retención es buena y se conserva; lo que cambia es el
 backend de disco por SQL.
 
-### Las regiones NO están repetidas en el frontend: salen de `api/lib/regions.js`
+### Las regiones NO están repetidas en el frontend: salen de `lib/regions.js`
 El origen las tenía en 5 lugares (`cvProfile.regions`, `apifyLinkedin.REGION_LOCATIONS`,
 `analytics.js`, `matcher.assignRegion()` y `utils.js REGION_LOCATION`). Hoy **el frontend las
 importa**: `utils.js` deriva `REGION_LOCATION` de `REGIONS`, `RegionTabs.jsx` genera las
 pestañas con `Object.keys(REGIONS)`, y `App.jsx` usa `regionLabel()`.
 
-**Vite SÍ resuelve imports fuera del root del workspace**: `frontend/src/utils.js` importa
-`../../api/lib/regions.js` y el build pasa, porque el archivo es JS puro sin dependencias de
-Node. Ojo con el path: desde `src/` van **dos** `..` y desde `src/components/` **tres**.
+**Rspack resuelve imports fuera del root del workspace**: `frontend/src/utils.js` importa
+`../../lib/regions.js`, porque el archivo es JS puro sin dependencias de Node. Ojo con el
+path: desde `src/` van **dos** `..` y desde `src/components/` **tres**.
 La única cosa de una región que quedó en el frontend es la bandera emoji
 (`utils.js: REGION_FLAG`), que es decoración y no configuración del dominio.
 
@@ -295,7 +300,8 @@ Nada de estado entre requests: o va a la DB, o se recalcula en cada llamada. Esc
 funciones asumiendo ejecución concurrente y possibly-paralela (dos requests a la vez), sin
 `await` sobre un "último resultado" global.
 
-Cada función exporta `GET`/`POST` y usa `export const config = { maxDuration: 30 }`.
+Las funciones exportan los métodos que usan y declaran `maxDuration`; los handlers que pueden
+esperar a un proveedor externo tienen 60 segundos y los demás 30.
 `vercel.json` enruta `/api/*` a las funciones y el rewrite del SPA **excluye `api/`** con
 `/((?!api/).*)`: si el rewrite se llevara `/api/health`, el smoke test recibiría el
 `index.html` del frontend en vez de JSON, y el deploy no podría distinguir "la función no
@@ -317,7 +323,7 @@ La caché de este proyecto es **SQL**, y son tres piezas que ya estaban en el es
 | `refreshing` (dedupe de refrescos) | **nada**, y está bien: no se puede portar | ver abajo |
 | `lastApifyJobs` (el fallback de `/api/job` para ofertas que no estaban en la caché) | el `job_history` de ese usuario, por `user_id`, que es lo que ya persistía `recordSearch` | `job.js` lo busca por `q` |
 
-El TTL es `CACHE_TTL_MS` en `api/lib/jobs.js` (30 minutos, el mismo del origen) y se
+El TTL es `CACHE_TTL_MS` en `lib/jobs.js` (30 minutos, el mismo del origen) y se
 compara contra el `created_at` **de la base**, no contra un `Date.now()` guardado en un
 objeto: el reloj de la corrida es el de Postgres, así que dos requests concurrentes no pueden
 discrepar sobre si la caché venció.
@@ -380,7 +386,7 @@ Un detalle que quedó viejo y hay que arreglar cuando se toque ese archivo: el c
 falsa.
 
 ### Tres trampas del esquema que revientan un `INSERT` de prueba
-`migrations/` tiene 11 archivos y tres detalles que no se deducen mirando el SQL de un vistazo.
+`migrations/` tiene 13 archivos y tres detalles que no se deducen mirando el SQL de un vistazo.
 Si escribís un test que **siembre un perfil a mano**, con cualquiera de estos tres mal el
 `INSERT` revienta (y el mensaje del error no los señala):
 
@@ -401,7 +407,7 @@ Si escribís un test que **siembre un perfil a mano**, con cualquiera de estos t
 `subject` y `body`; `lang` y `region` viajan por el contrato del origen y no los usa nadie.
 
 `/api/job` devuelve `{ job, summary }` y el `summary` es el **`summarize()` de
-`api/lib/coverLetter.js`** (`:121`), **no** de `analytics.js`. Puede ser `null`: con la
+`lib/coverLetter.js`**, **no** de `analytics.js`. Puede ser `null`: con la
 oferta re-rankeada y sin dato, el resumen no tiene de qué armarse.
 `JobDetailModal.jsx:59` lo banca (`const s = summary || { companySummary: ... }`), así que
 `null` es un estado válido de la respuesta y no hay que castearlo en el endpoint.
@@ -433,14 +439,14 @@ y cada item sale con `active`/`firstSeen`/`lastSeen` y **sin `score`** (no hay p
 que mostrar, y `/api/job` ya existe para el detalle de una).
 
 ### `db.js` es el único que abre conexiones, y una línea de ahí no se puede sacar
-`api/lib/db.js` es el **único** módulo del proyecto que abre conexiones. Nada más importa `pg`.
+`lib/db.js` es el **único** módulo del proyecto que abre conexiones. Nada más importa `pg`.
 Dos cosas sueltas que no se deducen del código:
 
 - **El pool se crea la primera vez que alguien consulta de verdad, no al importar el archivo.**
   Es deliberado: es lo que permite que `/api/health` responda **sin base de datos** (el smoke
   test del deploy no puede depender de que Neon esté sano). Si alguna vez agregás un
   `new Pool()` a nivel de módulo, o un `await` en el import, rompés esa garantía.
-- **`pg` devuelve `NUMERIC` como string, y `api/lib/db.js` lo arregla con un type parser
+- **`pg` devuelve `NUMERIC` como string, y `lib/db.js` lo arregla con un type parser
   global.** La línea es `types.setTypeParser(types.builtins.NUMERIC, Number)`, arriba del todo,
   y **va a nivel de módulo a propósito**: registrar el parser es un ajuste global del driver,
   no una opción de conexión, así que tiene que estar listo antes de la primera query (ponerlo
@@ -555,7 +561,8 @@ Dos cosas sueltas que no se deducen del código:
 
 ## La API, endpoint por endpoint
 
-Vive acá porque **no hay `README.md`** (ver Convenciones). La columna "compuerta" es lo único
+El README tiene el resumen de arranque; esta tabla es la referencia completa para desarrollar.
+La columna "compuerta" es lo único
 que hay que mirar antes de tocar un handler: es la que decide si el frontend cae en la
 pantalla de acceso (401), en el onboarding del CV (403) o entra a la app (200).
 
@@ -578,6 +585,8 @@ pantalla de acceso (401), en el onboarding del CV (403) o entra a la app (200).
 | `GET` | `/api/analytics` | **`requireProfile`** | `{ generatedAt, candidato, matchProjection, skillStats, strongSkills, missingSkills, englishPct, recommendations, githubEvidence }`. Sin parámetros y **sin `force`**, por costo |
 | `POST` | `/api/linkedin-search` | `requireProfile` | `{ region, jobs, total, regions, stats, _online, source, checkedAt, resultLimit, pages, searchUrl }`. **Se factura** (actor Apify). Rate limit diario `apify_usage` + `APIFY_DAILY_LIMIT`. `buildProfileKeywords` generalizado (sin regex QA). |
 | `GET` | `/api/directorio` | `requireProfile` | `{ region, keyword, terms, bolsas, consultoras }`. Cada entrada con `searchUrl` + `searchKind: 'sitio' | 'google' | 'ninguno'`. No scrapea: abre búsquedas prellenadas en el sitio de cada portal/consultora |
+| `GET` | `/api/favorites` | `requireProfile` | `{ favorites }`, solo ofertas guardadas por el usuario autenticado |
+| `POST` | `/api/favorites` | `requireProfile` | `{ ok: true, saved }`. Alterna guardar/quitar una oferta usando `{ key, job }` |
 
 Tres cosas de esa tabla que no se deducen mirando los handlers:
 
@@ -603,7 +612,7 @@ Tres cosas de esa tabla que no se deducen mirando los handlers:
 El **andamiaje está hecho y verificado** (paso 1 del plan): `package.json` con workspaces,
 `vercel.json`, `.gitignore`, `.env.example`, `scripts/check.js` y el `frontend/` copiado
 del origen. El paso 2 (**configuración única de regiones**) tiene escrito
-`api/lib/regions.js` y **el frontend ya está cableado**: `utils.js`, `RegionTabs.jsx` y
+`lib/regions.js` y **el frontend ya está cableado**: `utils.js`, `RegionTabs.jsx` y
 `App.jsx` lo importan. Falta que lo importen los módulos del backend que todavía no se
 portaron (`apifyLinkedin.js`, que es el paso 10). El paso 3 (limpieza) **también está
 hecho**, y fue casi todo frontend: `ConsultorasList.jsx` borrado, `FALLBACK.profile` (el
@@ -611,15 +620,15 @@ perfil falso de Ali) eliminado de `api.js`, las 7 regiones bajadas a Argentina y
 `FALLBACK.jobs` sin los buckets de Europa y EEUU.
 
 El **paso 4 (DB) está HECHO y VERIFICADO**: existen `migrations/` (los 8 de este paso; hoy
-hay 11), `api/lib/db.js`
+hay 13), `lib/db.js`
 (el único lugar que abre conexiones), y `scripts/migrate.js`. **`npm run migrate` ya funciona**,
 y el pool se crea la primera vez que alguien consulta de verdad — por eso `/api/health` puede
 seguir respondiendo sin base de datos. El type parser de `NUMERIC` está activado globalmente en
 `db.js` (§2.4 de MEMORIA.md).
 
 El **paso 5 (auth) también está HECHO y VERIFICADO contra un Postgres real**: existen
-`api/lib/auth.js` (cookie firmada + las dos compuertas), `api/lib/http.js` (errores, JSON,
-cookies, `withErrorHandling`), `api/lib/rateLimit.js` (rate limit del login sobre la tabla
+`lib/auth.js` (cookie firmada + las dos compuertas), `lib/http.js` (errores, JSON,
+cookies, `withErrorHandling`), `lib/rateLimit.js` (rate limit del login sobre la tabla
 `login_attempts` de `migrations/009_login_attempts.sql`) y los endpoints `register.js`,
 `login.js`, `logout.js`, `me.js` y `health.js`.
 
@@ -637,7 +646,7 @@ está escribiendo: el número solo no dice nada.
 |---|---|---|
 | Sesión (cookie firmada, HMAC) | `auth.js` | `requireSession(req)` → `{ user }` o 401 |
 | Perfil | `auth.js` | `requireProfile(req)` → `{ user, profile }` o **403** |
-| Rate limit del login | `rateLimit.js` | `assertLoginAllowed()` antes de comparar claves |
+| Rate limit del login | `rateLimit.js` | `withLoginAttempt()` serializa por IP y agrupa límite, bcrypt y registro en una transacción |
 
 Las dos primeras se distinguen por el **status**: 401 es "no sabés quién sos", 403 es "sabés
 quién sos pero te falta el CV". `requireProfile` devuelve `{ user, profile }` **juntos** a
@@ -677,11 +686,11 @@ Ese chequeo existe porque el bug ocurrió de verdad en este paso: dos `throw` de
 `auth.js:readCredentials` iban sin el `400` y producían
 `status: La clave tiene que tener al menos 8 caracteres.`
 
-**`api/lib/http.js` tiene CERO imports, y eso es una garantía, no un detalle de estilo.**
+**`lib/http.js` tiene CERO imports, y eso es una garantía, no un detalle de estilo.**
 `health.js` importa `sendJson` de ahí, así que el grafo del smoke test termina en
 `health.js → lib/http.js → (nada)` y no hay forma de que el endpoint toque la base. **Si
 agregás un import a `http.js`, rompés esa garantía** (no el código, la promesa de que
-`/api/health` responde sin DB). Verificado con `grep '^\s*import' api/lib/http.js` vacío y con
+`/api/health` responde sin DB). Verificado con `grep '^\s*import' lib/http.js` vacío y con
 un proceso sin `DATABASE_URL` donde `closePool()` devuelve `false` (o sea, el pool nunca se
 creó).
 
@@ -695,7 +704,7 @@ consumidores usan `profile?.` o `if (!profile) return null`. Con perfil ausente 
 muestra "tu perfil" y el mensaje de postulación sale **sin firma**: no se muestra ni se
 manda el nombre de nadie.
 
-El **paso 6 (perfil por usuario) está HECHO y VERIFICADO**: existen `api/lib/profile.js`
+El **paso 6 (perfil por usuario) está HECHO y VERIFICADO**: existen `lib/profile.js`
 (el reemplazo de `cvProfile.js`), `matcher.js`, `analytics.js`, `coverLetter.js` y el nuevo
 `text.js` (helpers puros de texto, shared por los otros cuatro: `jobText`, `asText`,
 `escapeReg`, `textHasSkill`, `toNumber`). `BASE_KEYWORDS`, `ROLE_SYNONYMS` e `isQARelevant`
@@ -711,9 +720,9 @@ que `FALLBACK.jobs` queda solo para cuando el backend no responde (server caído
 todavía en curso). Ver abajo.
 
 El **paso 7 (onboarding) está HECHO y VERIFICADO de las dos mitades**: la de backend son
-`api/lib/cvText.js` (validación MIME/tamaño + extracción de PDF/DOCX en memoria), `api/lib/llm.js`
+`lib/cvText.js` (validación MIME/tamaño + extracción de PDF/DOCX en memoria), `lib/llm.js`
 (el único módulo que habla con el proveedor, con recorte de entrada y tope de salida) y
-**`cv_parses`** (migración `010`) con `api/lib/cvParseLimit.js`, llamado desde `api/cv/parse.js`
+**`cv_parses`** (migración `010`) con `lib/cvParseLimit.js`, llamado desde `api/profile/[...slug].js`
 paso 6. Verificado con `npm run check` (22 archivos), `npm run build` (43 módulos), las 10
 migraciones aplicadas e idempotentes contra un Postgres 16, y 46 aserciones contra un
 **OpenAI-compatible falso** en `127.0.0.1` con el PDF real: 401/415/400 no consumen cuota, 200
@@ -796,7 +805,7 @@ Ojo con cuatro decisiones que no se deducen del código:
 Y dos cosas que se ven exercising y que son de `login.js`, no del frontend:
 
 - **Una clave de menos de 8 caracteres da 400 y NO cuenta como intento.** `readCredentials`
-  corre antes de `assertLoginAllowed`, así que no se llega al rate limit. No es una falla: ese
+  corre antes de `withLoginAttempt`, así que no se llega al rate limit. No es una falla: ese
   intento no corrió bcrypt ni tocó `users`. Pero sí significa que un 429 tiene que armarse con
   claves largas y **deben pasar por la validación de formato**, o el test no mide lo que dice medir.
 - **El límite es por PAREJA (correo+ip), no por correo ni global.** `LOGIN_LIMIT_MAX_PER_PAIR`
@@ -804,9 +813,9 @@ Y dos cosas que se ven exercising y que son de `login.js`, no del frontend:
   que vaciar `login_attempts` después, porque la ventana no expira en un test.
 
 ### El paso 8 (OFERTAS) está HECHO Y VERIFICADO: la app ya muestra ofertas de verdad
-Son 12 archivos: `api/lib/jobSources.js` (las 5 bolsas gratuitas, `fetchJobs(profile)` →
-`{ jobs, online }`), `api/lib/portal.js`, `api/lib/searchTerms.js`, `api/lib/history.js`,
-`api/lib/jobs.js` (el orquestador, `getRanked()` → `{ regions, _online, source,
+Son 12 archivos: `lib/jobSources.js` (las 5 bolsas gratuitas, `fetchJobs(profile)` →
+`{ jobs, online }`), `lib/portal.js`, `lib/searchTerms.js`, `lib/history.js`,
+`lib/jobs.js` (el orquestador, `getRanked()` → `{ regions, _online, source,
 checkedAt }`), los 6 endpoints y `migrations/011_searches_online.sql`.
 
 **Antes de este paso la app compilaba pero los 6 endpoints de ofertas devolvían 404 y el
@@ -856,7 +865,7 @@ español) **no se resuelve en este paso**: es un paso propio.
 ### El paso 9 (Directorio de Argentina) está HECHO y VERIFICADO (2026-10-03)
 
 Son 5 archivos nuevos + 6 modificados:
-- `api/lib/directorio.js` — catálogo puro (9 bolsas + 4 consultoras de Argentina), `slugify`, `linkedinSearchUrl`, `consultoraSearchUrl` (mudadas de `utils.js`), `directorioFor`, `buildDirectory`.
+- `lib/directorio.js` — catálogo puro (9 bolsas + 4 consultoras de Argentina), `slugify`, `linkedinSearchUrl`, `consultoraSearchUrl` (mudadas de `utils.js`), `directorioFor`, `buildDirectory`.
 - `api/directorio.js` — `GET /api/directorio?region=` con `requireProfile`, `normalizeProfile` + `loadProfileSkills`, `sendJson`.
 - `frontend/src/components/DirectorioPage.jsx` — vista con dos secciones (bolsas/consultoras), tarjetas reusando `.job-card`, etiquetas `searchKind` (`sitio`/`google`/`ninguno`), aviso honesto cuando `keyword === ''`.
 - `frontend/src/components/RegionTabs.jsx` — botón `🔗 Directorio de empleo` en `.region-tabs-secondary`, exporta `SECCIONES = ['analisis', 'directorio']` y `esSeccion()`.
@@ -864,7 +873,7 @@ Son 5 archivos nuevos + 6 modificados:
 - `frontend/src/App.jsx` — cableado en `goToRegion` (rama `directorio` ANTES de países, cachea con `directorioCargado`), `statusText`, `handleRefresh` (vuelve a pedir el catálogo), `handleToggleHistory` (bloquea en secciones), `limpiarSesion` (limpia `directorio` + flag), render ternario `region === 'directorio' ? <DirectorioPage/>`.
 - `frontend/src/Toolbar.jsx` — `esSeccionActual = esSeccion(region)` (generaliza el viejo `isConsulta`).
 - `frontend/src/styles.css` — bloque `.directorio-*`, grilla `repeat(auto-fit, minmax(260px, 1fr))`, reusa `.cat-pill` + `.cat-qa`/`.cat-multi`/`.cat-gov` para las tres `searchKind`, **limpia clases huérfanas del tracker de outreach** (`.consultoras-tab`, `.consultoras-filter`, `.filter-label`, `.consultora-controls`, `.estado-select`, `.notas-input`, `.consultora-card`, `.consultora-logo`, `.consultora-logo-init`, y las tres variantes `.cat-it`, `.cat-staffing`, `.cat-fintech`).
-- `frontend/src/utils.js` — `linkedinSearchUrl` reexportada desde `../../api/lib/directorio.js`; `consultoraSearchUrl` borrada (se mudó al backend).
+- `frontend/src/utils.js` — `linkedinSearchUrl` reexportada desde `../../lib/directorio.js`; `consultoraSearchUrl` borrada (se mudó al backend).
 
 **Verificación**: `npm run check` → **OK: 36 archivos** (antes 34: +2 `api/`); `npm run build` → 50 módulos. 43 aserciones del módulo puro (script temporal): `slugify` (acentos, `C#/C++`, vacío, signos, `ñ`), `linkedinSearchUrl`/`consultoraSearchUrl` byte a byte, respuesta exacta (`Object.keys` profundo), 8 bolsas `sitio` + Get on Board `ninguno`, 4 consultoras `google`/`ninguno`, caso sin perfil en 4 variantes (`null`, `{}`, `skills: []`, skills sin peso) → 13 entradas a `searchUrl === home` con `searchKind: 'ninguno'`. **0 fallas**.
 
