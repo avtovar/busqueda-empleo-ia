@@ -793,6 +793,10 @@ Ojo con cuatro decisiones que no se deducen del código:
   formulario con su propia versión de "esto no es un correo" muestra un error distinto del del
   servidor, y ahí hay dos verdades. La única guarda local es el botón deshabilitado con los
   campos vacíos, que evita un 400 previsible y no es una regla de negocio.
+- `AuthScreen.jsx` guarda la clave en el estado local `clave`, pero las funciones `register()`
+  y `login()` reciben el campo `password`: al llamarlas hay que mapearlo como
+  `{ email, password: clave }`. Si se pasa `{ email, clave }`, JSON omite `password` y el
+  backend responde 400 ("Necesitás el correo y la clave.").
 - **`logout()` NO lanza y devuelve `false` si el backend no responde.** El logout no borra nada
   del servidor: manda la cookie con `Max-Age=0`. Si el server estaba caído, la cookie sigue viva en
   el navegador, y `handleLogout` pone `estado: 'sin-sesion'` igual. La alternativa —dejar al

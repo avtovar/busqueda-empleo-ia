@@ -83,6 +83,17 @@ por el entorno de test y con las migraciones aplicadas; nunca usar una base prod
 pasaron `npm run check` (32 archivos), ESLint con `--max-warnings=0` y `npm run build`. Los
 tests no llaman Apify ni un LLM real; el test de CV usa un proveedor falso local.
 
+## Error de registro en producción (2026-10-09)
+
+- La consola mostraba 401 en `/api/auth/me`, `/api/favorites` y `/api/jobs/jobs` antes de iniciar
+  sesión: son respuestas normales de las compuertas de auth, no errores del registro.
+- El 400 al crear cuenta sí era un bug: `AuthScreen` guardaba la clave en `clave`, pero invocaba
+  `register()`/`login()` con `{ email, clave }`; esos helpers aceptan `{ email, password }`. Al
+  serializar JSON, `password` quedaba ausente y `readCredentials()` devolvía "Necesitás el correo
+  y la clave." Corregido mapeando `password: clave` en ambas llamadas.
+- `AuthScreen.jsx` toca el contrato con `frontend/src/api.js`; no renombrar el estado de UI sin
+  actualizar ese mapeo. Falta desplegar el cambio antes de que afecte al dominio de Vercel.
+
 ## Decisiones de arquitectura (ADRs)
 
 Las decisiones de arquitectura importantes están documentadas en `docs/adrs/` como registros individuales:

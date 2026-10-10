@@ -81,8 +81,8 @@ export default function AuthScreen({ onAuthed }) {
 
     try {
       const datos = modo === 'registro'
-        ? await register({ email, clave })
-        : await login({ email, clave });
+        ? await register({ email, password: clave })
+        : await login({ email, password: clave });
       // ↑ Ojo con el nombre de la variable del body: el backend espera
       //   `{ email, password }`, no `clave`. El campo se llama "clave" en la UI
       //   porque `password` en un `<input>` dispara los gestores de contraseña del
