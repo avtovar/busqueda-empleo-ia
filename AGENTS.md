@@ -745,6 +745,10 @@ Ojo con cuatro decisiones de esa capa, que no se deducen del código:
   `mostrarPrivacidad` sea `true`; por eso `PrivacyNotice` tiene que renderizarse
   dentro del contenido compartido de `CvOnboarding`, para que un usuario nuevo
   pueda consentir y habilitar el botón de análisis.
+- Rspack no define `import.meta.env` por defecto. Si el frontend lee variables de
+  entorno de Vite, debe proteger el acceso con optional chaining (`import.meta.env?.`)
+  o definir explícitamente ese objeto en la configuración de Rspack: una lectura
+  directa puede tirar una excepción durante el renderizado.
 - **`PUT /api/profile` es un REEMPLAZO, no un parche.** El formulario manda el perfil entero y
   arrastra los dos campos que **no** se editan (`marketSkills` y `projects`), porque lo que no
   viene en el body se borra. El editor los muestra contados y nombrados abajo del formulario

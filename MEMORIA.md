@@ -104,6 +104,9 @@ tests no llaman Apify ni un LLM real; el test de CV usa un proveedor falso local
 - Corregido moviendo la instancia condicional del aviso al contenido compartido de
   `CvOnboarding`, que renderizan tanto la compuerta como el editor. No se agregó OCR: los PDF
   escaneados sin texto seleccionable continúan rechazándose con un mensaje explícito.
+- En producción, la compuerta seguía sin renderizar porque Rspack no define `import.meta.env`:
+  acceder directamente a `import.meta.env.VITE_LLM_PROVIDER_NAME` tiraba un `TypeError`. Corregido
+  con optional chaining para conservar el proveedor opcional y usar el fallback cuando no existe.
 
 ## Decisiones de arquitectura (ADRs)
 

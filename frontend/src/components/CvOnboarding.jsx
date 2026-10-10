@@ -424,7 +424,7 @@ export default function CvOnboarding({ profile, onSaved, onCancel, onDeleteAccou
         if (inputArchivo.current) inputArchivo.current.value = '';
         setArchivo(null);
       }}
-      providerName={import.meta.env.VITE_LLM_PROVIDER_NAME || 'el proveedor configurado (OpenAI-compatible)'}
+      providerName={import.meta.env?.VITE_LLM_PROVIDER_NAME || 'el proveedor configurado (OpenAI-compatible)'}
     />
   );
 
