@@ -413,6 +413,8 @@ async function handlePutProfile(req) {
 
 async function handleParseCv(req) {
   const { user } = await requireSession(req);
+  console.log(`[API HIT] POST /api/cv/parse — usuario ${user.id}`);
+  console.log(`[API CONTENT-LENGTH] ${req.headers.get('content-length')}`);
 
   const contentLength = req.headers.get('content-length');
   if (contentLength && parseInt(contentLength, 10) > MAX_MULTIPART_BYTES) {
@@ -430,6 +432,7 @@ async function handleParseCv(req) {
 
   await recordGlobalUsage('cv');
 
+  console.log(`[API RESP] POST /api/cv/parse — perfil generado: ${profile ? 'OK' : 'N/A'}, kind: ${kind}`);
   return jsonResponse({
     ok: true,
     profile,

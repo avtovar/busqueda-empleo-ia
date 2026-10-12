@@ -100,6 +100,9 @@ async function handleJobs(req, user, profile) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 async function handleJob(req, user, profile) {
+  console.log(`[API HIT] GET /api/job?q= — usuario ${user ? user.id : 'sin sesión'}`);
+  console.log(`[API PARAMS] id=${req.query.q || req.query.id}`);
+  
   const contract = normalizeProfile(profile, await loadProfileSkills(user.id));
   const id = getQueryParam(req, 'q') || getQueryParam(req, 'id');
 
@@ -116,6 +119,7 @@ async function handleJob(req, user, profile) {
     return jsonResponse({ job: found.job, summary: null, matchScore: 0 }, 200);
   }
   const job = { ...found.job, ...match };
+  console.log(`[API RESP] GET /api/job — status: jsonResponse, jobCount=${job ? job.length : 0}, matchApplied=${!!match}`);
   return jsonResponse({ job, summary: summarize(job, contract) });
 }
 
