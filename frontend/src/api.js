@@ -404,7 +404,10 @@ export async function parseCv(file) {
 
   let response;
   try {
-    response = await fetch('/api/cv/parse', {
+    response = await fetch('/api/profile/cv/parse', {
+      // ↑ Ruta DESTINO directa y no el alias `/api/cv/parse`: el rewrite de
+      //   `vercel.json` devuelve 404 de plataforma en Vercel y el análisis
+      //   nunca llegaba al backend. El resto de endpoints ya usan su destino.
       method: 'POST',
       body: form,
       // ↑ SIN `headers`. Ver la nota de arriba: el `Content-Type` lo pone el
