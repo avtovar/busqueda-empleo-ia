@@ -342,6 +342,9 @@ function textForLlm(texto) {
 
 function getRoute(req) {
   const url = new URL(req.url);
+  // ↑ El archivo dedicado `api/cv/parse.js` re-exporta este POST, así que el
+  //   pathname llega como `/api/cv/parse`: se mapea a `/cv/parse` para el `handlePost`.
+  if (url.pathname === '/api/cv/parse' || url.pathname === '/api/cv/parse/') return '/cv/parse';
   return url.pathname.replace(BASE_PATH, '') || '/';
 }
 
