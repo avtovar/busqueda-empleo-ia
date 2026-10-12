@@ -236,7 +236,7 @@ async function handleMe(req) {
 // ══════════════════════════════════════════════════════════════════════════
 
 async function handleAccount(req) {
-  const sessionCookie = getCookie(req, bei_session);
+  const sessionCookie = getCookie(req, 'bei_session');
   if (!sessionCookie) {
     return errorResponse('No hay sesión válida.', 401);
   }
@@ -331,4 +331,4 @@ export const DELETE = withErrorHandling(async (req) => {
   } else {
     return errorResponse('Endpoint no encontrado', 404);
   }
-});// force rebuild
+});
