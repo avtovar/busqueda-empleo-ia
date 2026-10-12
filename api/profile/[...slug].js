@@ -422,7 +422,9 @@ async function handleParseCv(req) {
   }
 
   const file = await readCvFile(req);
+  console.log(`[API READ FILE] file: ${file ? 'tiene buffer: ' + (file?.buffer?.length > 0 ? file.buffer.length : 0) + ' bytes' : 'NULL'} `);
   validateCvFile(file);
+  console.log(`[API VALIDATE] passed - tipo: ${file?.mimetype || 'N/A'}, size: ${file?.buffer?.length || 0} bytes`);
   const { text: cvText, kind } = await extractCvText(file);
 
   await assertCvParseAllowed(user.id);
