@@ -7,7 +7,7 @@ tabla de la API y qué falta); acá queda lo que **no se deduce del código**: e
 el diagnóstico del código heredado con su evidencia, las decisiones que se tomaron y lo que
 quedó abierto.
 
-Última actualización real: **2026-10-09** (revisión de CI/tests y atomicidad del rate limit de login).
+Última actualización real: **2026-10-12** (fix `api/cv/parse.js` dedicado, commit d0cb131).
 Las actualizaciones anteriores fueron el andamiaje, `regions.js`, el paso 4 de la base de datos
 completo, el paso 5 de auth, el paso 6 (perfil por usuario), el paso 7 (onboarding), la pantalla
 de acceso, directorio de Argentina, Apify/LinkedIn, borrado de cuenta, guía de despliegue Vercel,
@@ -18,6 +18,24 @@ favoritos y build con Rspack/SWC.
 ## 0. DÓNDE QUEDAMOS — leé esto primero si volvés al proyecto
 
 **Todas las fases del plan están HECHAS y VERIFICADAS.**
+
+### Fix deploy 2026-10-12 — POST `/api/cv/parse` dedicado
+
+El alias de `vercel.json` (`/api/cv/parse` → `/api/profile/cv/parse`) devolvía **404 de
+plataforma**: la request nunca llegaba a la función. El intento intermedio (bea82d1, pegar
+directo a `/api/profile/cv/parse` desde el frontend) tampoco entraba porque el catch-all
+`api/profile/[...slug].js` **no recibe slugs de dos segmentos (`cv/parse`) en Vercel**.
+
+Solución (d0cb131): archivo dedicado `api/cv/parse.js` (9 líneas) que **re-exporta** el POST
+del router de perfil sin duplicar lógica (`import { POST as profilePOST } from
+'../profile/[...slug].js'`); `maxDuration: 60` propio en `vercel.json` y **sin rewrite**
+(la ruta exacta ya tiene función propia); shim en `getRoute()`
+(`api/profile/[...slug].js:347`) que mapea el pathname `/api/cv/parse` → `/cv/parse` para
+el `handlePost`; y `parseCv()` vuelve a `fetch('/api/cv/parse')` (`frontend/src/api.js:407`).
+
+Prueba sin costo: sin cookie da **401, nunca 404** (la ruta existe y la compuerta responde);
+el LLM solo corre con sesión válida, así que verificar la ruta no gasta tokens. Verificado
+con `npm run check` (34 archivos OK), ESLint limpio y build Rspack/SWC OK.
 
 El traspaso quedó el **2026-10-08**, con `npm run check` (9 archivos) y `npm run build` (Rspack/SWC) en verde. Hay un **Postgres 16 corriendo en Docker** con las 13 migraciones aplicadas, usado solo para verificar: `docker stop pg-history-check` para bajarlo.
 

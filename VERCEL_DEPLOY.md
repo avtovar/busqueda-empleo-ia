@@ -180,7 +180,13 @@ curl -fsS https://TU-DOMINIO.vercel.app/api/health
 
 ```
 api/
-  *.js                    # endpoints serverless (uno por archivo)
+  auth/[...slug].js        # register, login, logout, me, account
+  jobs/[...slug].js        # jobs, job, history, refresh
+  profile/[...slug].js     # profile + cv/parse (router; shim getRoute para /api/cv/parse)
+  cv/parse.js              # archivo dedicado: re-exporta POST de perfil (ruta exacta)
+  search/[...slug].js      # linkedin-search, directorio
+  analytics/[...slug].js   # analytics, cover-letter
+  health.js favorites.js   # rutas exactas (sin catch-all)
   lib/
     regions.js            # única config de regiones (Argentina)
     directorio.js         # catálogo de bolsas/consultoras (paso 9)
@@ -202,7 +208,7 @@ frontend/
 migrations/
   *.sql                   # versiónados, idempotentes, NO se editan
 .env.example              # plantilla de variables (13)
-vercel.json               # routes + maxDuration: 30
+vercel.json               # rewrites + maxDuration 60 (perfil/cv/search), 30 el resto
 ```
 
 ---
