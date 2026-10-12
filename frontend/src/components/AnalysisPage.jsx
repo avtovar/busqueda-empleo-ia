@@ -183,7 +183,7 @@ export default function AnalysisPage({ data, profile, viewMode, refreshing, onRe
               <div className="evidence-row" key={skill.name}>
                 <strong>{skill.name}</strong>
                 <div className="evidence-projects">
-                  {skill.projects.map((projectName) => {
+                  {(skill.projects || []).map((projectName) => {
                     const project = projectByName.get(projectName);
                     return project ? (
                       <a key={projectName} href={project.url} target="_blank" rel="noopener noreferrer">{projectName}</a>

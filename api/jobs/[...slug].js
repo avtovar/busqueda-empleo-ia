@@ -108,7 +108,14 @@ async function handleJob(req, user, profile) {
     return errorResponse('No encontramos esa oferta.', 404);
   }
 
-  const job = { ...found.job, ...computeMatch(found.job, contract) };
+  const match = computeMatch(found.job, contract);
+  // Si la oferta no tiene match para este perfil (score <= 0),
+  // la devolvemos sin aplicar el match: el detalle de una oferta que no
+  // sirve para el perfil actual no es útil y confunde al usuario.
+  if (match.score <= 0) {
+    return jsonResponse({ job: found.job, summary: null, matchScore: 0 }, 200);
+  }
+  const job = { ...found.job, ...match };
   return jsonResponse({ job, summary: summarize(job, contract) });
 }
 
