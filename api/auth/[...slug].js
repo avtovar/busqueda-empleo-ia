@@ -54,7 +54,7 @@ function requireSignupCode(body) {
 }
 
 function getRoute(req) {
-  const url = new URL(req.url);
+  const url = new URL(req.url, 'http://localhost');
   return url.pathname.replace('/api/auth', '') || '/';
 }
 

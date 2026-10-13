@@ -11,6 +11,7 @@ import { generateCoverLetter, summarize } from '../lib/coverLetter.js';
 import { buildAnalytics } from '../lib/analytics.js';
 import { buildDirectory } from '../lib/directorio.js';
 import { normalizeProfile } from '../lib/profile.js';
+import { extractCvText, validateCvFile, looksLikePdf, MIN_CV_TEXT_CHARS } from '../lib/cvText.js';
 
 test('lib/apifyLinkedin.js — buildProfileKeywords & maxResults', async (t) => {
   await t.test('buildProfileKeywords combina keywords y skills de peso alto', () => {
@@ -132,5 +133,54 @@ test('lib/directorio.js — buildDirectory', async (t) => {
     assert.ok(Array.isArray(dir.bolsas));
     assert.ok(Array.isArray(dir.consultoras));
     assert.ok(dir.bolsas.length > 0);
+  });
+});
+
+test('lib/cvText.js — validacion y deteccion de CVs', async (t) => {
+  await t.test('looksLikePdf reconoce magia %PDF-', () => {
+    assert.equal(looksLikePdf(Buffer.from('%PDF-1.4 test content')), true);
+    assert.equal(looksLikePdf(Buffer.from('not a pdf')), false);
+    assert.equal(looksLikePdf(null), false);
+  });
+
+  await t.test('validateCvFile aprueba archivo valido', () => {
+    const file = {
+      mimetype: 'application/pdf',
+      filename: 'mi_cv.pdf',
+      size: 1024,
+      buffer: Buffer.from('%PDF-1.4 test pdf file'),
+    };
+    const validated = validateCvFile(file);
+    assert.equal(validated.filename, 'mi_cv.pdf');
+  });
+
+  await t.test('validateCvFile rechaza archivo vacio o nulo', () => {
+    assert.throws(() => validateCvFile(null), { status: 400 });
+    assert.throws(() => validateCvFile({ buffer: null }), { status: 400 });
+    assert.throws(
+      () => validateCvFile({ mimetype: 'application/pdf', filename: 'cv.pdf', buffer: Buffer.alloc(0) }),
+      { status: 400 },
+    );
+  });
+
+  await t.test('validateCvFile infiere MIME de extension si es application/octet-stream', () => {
+    const file = {
+      mimetype: 'application/octet-stream',
+      filename: 'mi_cv.pdf',
+      size: 1024,
+      buffer: Buffer.from('%PDF-1.4 header'),
+    };
+    const validated = validateCvFile(file);
+    assert.equal(validated.filename, 'mi_cv.pdf');
+  });
+
+  await t.test('validateCvFile rechaza extensiones no soportadas', () => {
+    const file = {
+      mimetype: 'image/png',
+      filename: 'foto_cv.png',
+      size: 1024,
+      buffer: Buffer.from('png content'),
+    };
+    assert.throws(() => validateCvFile(file), { status: 415 });
   });
 });
