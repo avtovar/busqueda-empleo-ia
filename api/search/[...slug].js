@@ -23,12 +23,12 @@ export const config = { maxDuration: 60 };
 const BASE_PATH = '/api/search';
 
 function getRoute(req) {
-  const url = new URL(req.url);
+  const url = new URL(req.url, 'http://localhost');
   return url.pathname.replace(BASE_PATH, '') || '/';
 }
 
 function getQueryParam(req, name) {
-  const url = new URL(req.url);
+  const url = new URL(req.url, 'http://localhost');
   return url.searchParams.get(name);
 }
 
@@ -84,7 +84,12 @@ async function handleLinkedInSearch(req, user, profile) {
   await assertApifyAllowed(user.id);
   await checkGlobalDailyLimit('apify');
 
-  const body = await req.json();
+  let body;
+  try {
+    body = await req.json();
+  } catch {
+    body = {};
+  }
   const region = isValidRegion(body?.region) ? body.region : DEFAULT_REGION;
   const limit = body?.limit;
 

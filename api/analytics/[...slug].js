@@ -21,12 +21,12 @@ export const config = { maxDuration: 30 };
 const BASE_PATH = '/api/analytics';
 
 function getRoute(req) {
-  const url = new URL(req.url);
+  const url = new URL(req.url, 'http://localhost');
   return url.pathname.replace(BASE_PATH, '') || '/';
 }
 
 function getQueryParam(req, name) {
-  const url = new URL(req.url);
+  const url = new URL(req.url, 'http://localhost');
   return url.searchParams.get(name);
 }
 

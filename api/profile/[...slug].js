@@ -10,8 +10,7 @@
 // maxDuration: 60 para cubrir /api/cv/parse (LLM puede tardar 25s + cold start)
 // Build timestamp: 2026-10-04T21:58:00Z ============================================================================
 
-import { requireProfile, requireSession } from '../../lib/auth-fetch.js';
-import { HttpError } from '../../lib/auth-fetch.js';
+import { requireProfile, requireSession, HttpError, ConfigError } from '../../lib/auth-fetch.js';
 import { loadProfileSkills, normalizeProfile, normalizeSkills, saveProfile } from '../../lib/profile.js';
 import { asText, toNumber } from '../../lib/text.js';
 import { MAX_CV_BYTES, extractCvText, validateCvFile } from '../../lib/cvText.js';
@@ -294,20 +293,42 @@ function fileFromRaw(req, raw) {
 }
 
 async function readRawBody(req) {
-  if (typeof req[Symbol.asyncIterator] !== 'function') return null;
-  const chunks = [];
-  let total = 0;
-  for await (const chunk of req) {
-    total += chunk.length;
-    if (total > MAX_MULTIPART_BYTES) {
+  if (typeof req.arrayBuffer === 'function') {
+    const ab = await req.arrayBuffer();
+    const buf = Buffer.from(ab);
+    if (buf.length > MAX_MULTIPART_BYTES) {
       throw new HttpError(
         413,
         `El CV es demasiado grande. El máximo son ${MAX_CV_BYTES / (1024 * 1024)} MB.`,
       );
     }
-    chunks.push(chunk);
+    return buf.length ? buf : null;
   }
-  return chunks.length ? Buffer.concat(chunks) : null;
+
+  let stream = null;
+  if (typeof req[Symbol.asyncIterator] === 'function') {
+    stream = req;
+  } else if (req.body && typeof req.body[Symbol.asyncIterator] === 'function') {
+    stream = req.body;
+  }
+
+  if (stream) {
+    const chunks = [];
+    let total = 0;
+    for await (const chunk of stream) {
+      total += chunk.length;
+      if (total > MAX_MULTIPART_BYTES) {
+        throw new HttpError(
+          413,
+          `El CV es demasiado grande. El máximo son ${MAX_CV_BYTES / (1024 * 1024)} MB.`,
+        );
+      }
+      chunks.push(chunk);
+    }
+    return chunks.length ? Buffer.concat(chunks) : null;
+  }
+
+  return null;
 }
 
 async function readCvFile(req) {
@@ -315,6 +336,38 @@ async function readCvFile(req) {
   const isMultipart = /^\s*multipart\/form-data\s*(;|$)/i.test(contentType || '');
 
   if (isMultipart) {
+    if (typeof req.formData === 'function') {
+      try {
+        const formData = await req.clone().formData();
+        const cvItem = formData.get(FIELD_NAME) || formData.get('file');
+        let fileObj = null;
+        if (cvItem && typeof cvItem === 'object' && typeof cvItem.arrayBuffer === 'function') {
+          fileObj = cvItem;
+        } else {
+          for (const value of formData.values()) {
+            if (value && typeof value === 'object' && typeof value.arrayBuffer === 'function') {
+              fileObj = value;
+              break;
+            }
+          }
+        }
+        if (fileObj) {
+          const arrayBuffer = await fileObj.arrayBuffer();
+          const buffer = Buffer.from(arrayBuffer);
+          const filename = (fileObj.name || 'cv.pdf').replace(/^.*[\\/]/, '');
+          const mimetype = (fileObj.type || '').toLowerCase();
+          return {
+            mimetype,
+            filename,
+            size: buffer.length,
+            buffer,
+          };
+        }
+      } catch {
+        // Fallback a parseo manual de raw body si req.formData() no está soportado o falla
+      }
+    }
+
     const raw = await readRawBody(req);
     return raw ? fileFromRaw(req, raw) : null;
   }
@@ -341,7 +394,7 @@ function textForLlm(texto) {
 }
 
 function getRoute(req) {
-  const url = new URL(req.url);
+  const url = new URL(req.url, 'http://localhost');
   // ↑ El archivo dedicado `api/cv/parse.js` re-exporta este POST, así que el
   //   pathname llega como `/api/cv/parse`: se mapea a `/cv/parse` para el `handlePost`.
   if (url.pathname === '/api/cv/parse' || url.pathname === '/api/cv/parse/') return '/cv/parse';
@@ -376,6 +429,10 @@ function withErrorHandling(handler) {
           }
         }
         return errorResponse(err.message, err.status, err.extra, headers);
+      }
+      if (err instanceof ConfigError) {
+        console.error('[config] %s', err.message);
+        return errorResponse(err.message, 500);
       }
       console.error('[error] %s', (err && err.stack) || err);
       return errorResponse('Error interno del servidor.', 500);
@@ -424,14 +481,14 @@ async function handleParseCv(req) {
     return errorResponse(`El CV es demasiado grande. El máximo son ${MAX_CV_BYTES / (1024 * 1024)} MB.`, 413);
   }
 
+  await assertCvParseAllowed(user.id);
+  await checkGlobalDailyLimit('cv');
+
   const file = await readCvFile(req);
   console.log(`[API READ FILE] file: ${file ? 'tiene buffer: ' + (file?.buffer?.length > 0 ? file.buffer.length : 0) + ' bytes' : 'NULL'} `);
   validateCvFile(file);
   console.log(`[API VALIDATE] passed - tipo: ${file?.mimetype || 'N/A'}, size: ${file?.buffer?.length || 0} bytes`);
   const { text: cvText, kind } = await extractCvText(file);
-
-  await assertCvParseAllowed(user.id);
-  await checkGlobalDailyLimit('cv');
 
   const profile = await parseCvToProfile(textForLlm(cvText));
 

@@ -30,12 +30,12 @@ export const config = { maxDuration: 30 };
 const BASE_PATH = '/api/jobs';
 
 function getRoute(req) {
-  const url = new URL(req.url);
+  const url = new URL(req.url, 'http://localhost');
   return url.pathname.replace(BASE_PATH, '') || '/';
 }
 
 function getQueryParam(req, name) {
-  const url = new URL(req.url);
+  const url = new URL(req.url, 'http://localhost');
   return url.searchParams.get(name);
 }
 
@@ -119,7 +119,7 @@ async function handleJob(req, user, profile) {
     return jsonResponse({ job: found.job, summary: null, matchScore: 0 }, 200);
   }
   const job = { ...found.job, ...match };
-  console.log(`[API RESP] GET /api/job — status: jsonResponse, jobCount=${job ? job.length : 0}, matchApplied=${!!match}`);
+  console.log(`[API RESP] GET /api/job — status: jsonResponse, jobId=${job ? job.id : 'N/A'}, matchApplied=${!!match}`);
   return jsonResponse({ job, summary: summarize(job, contract) });
 }
 
