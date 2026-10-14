@@ -153,7 +153,7 @@ que decide si el frontend cae en la pantalla de acceso (401), en el onboarding d
 | `GET` | `/api/me` | `requireSession` | `{ user, profileComplete }`. **Es el que decide a dónde va el usuario**: 200 siempre, nunca 403 |
 | `GET` | `/api/profile` | **`requireProfile`** | el perfil del contrato, plano (sin envoltorio) |
 | `PUT` | `/api/profile` | `requireSession` | `{ ok, profileComplete, profile }`. Es **reemplazo**, no parche: lo que no viene en el body se borra |
-| `POST` | `/api/cv/parse` | `requireSession` | `{ ok, profile, kind, saved: false }`. **Único** que llama a un LLM de pago. El `saved: false` es la respuesta a la pregunta importante: el perfil NO quedó guardado hasta el `PUT` |
+| `POST` | `/api/cv/parse` | `requireSession` | `{ ok, profile, kind, saved: false }`. Acepta PDF/DOCX de hasta 4 MB o JSON `{ text }` de 200–20.000 caracteres. **Único** que llama a un LLM de pago. El `saved: false` indica que el perfil NO queda guardado hasta el `PUT` |
 | `DELETE` | `/api/account` | `requireSession` | `{ ok: true }` + cookie con `Max-Age=0`. Audita la baja **antes** de borrar, y el `delete` se lleva las 7 tablas por cascada |
 | `GET` | `/api/jobs?region=` | **`requireProfile`** | `{ region, jobs, total, _online, source, checkedAt }` |
 | `GET` | `/api/job?q=` | **`requireProfile`** | `{ job, summary }`. `summary` **puede ser `null`** |
@@ -254,6 +254,10 @@ No hay uno, hay **dos**, y cada uno tiene su propio límite en su propia tabla.
 ### El LLM (`POST /api/cv/parse`)
 
 El único endpoint que llama a un LLM, y se paga por token con `LLM_API_KEY`.
+
+El endpoint acepta un PDF/DOCX de hasta 4 MB o texto pegado de 200 a 20.000
+caracteres. Pegar texto permite analizar un CV que no se pudo leer como PDF; en
+ambos casos la entrada inválida se rechaza antes de consumir la cuota.
 
 - **Nunca lo llames en pruebas ni en CI contra el proveedor real.** Lo único que se
   puede ejercitar de verdad es un servidor OpenAI-compatible falso en `127.0.0.1`:

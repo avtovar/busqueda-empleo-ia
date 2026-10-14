@@ -28,8 +28,8 @@ export default function PrivacyNotice({ onAccept, onDecline, show = true, provid
         <div className="privacy-body" onScroll={handleScroll}>
           <section>
             <h3>1. ¿Qué datos recolectamos?</h3>
-            <p>Al subir tu CV (PDF o DOCX), extraemos el texto y lo enviamos a un <strong>modelo de lenguaje (LLM)</strong> para armar tu perfil profesional: nombre, título, años de experiencia, resumen, skills con pesos y keywords de búsqueda.</p>
-            <p><strong>El archivo del CV NUNCA se guarda en nuestros servidores ni en base de datos.</strong> Solo se procesa en memoria durante la extracción y se descarta inmediatamente.</p>
+            <p>Al subir tu CV (PDF o DOCX) o pegar su texto, enviamos el contenido a un <strong>modelo de lenguaje (LLM)</strong> para armar tu perfil profesional: nombre, título, años de experiencia, resumen, skills con pesos y keywords de búsqueda.</p>
+            <p><strong>El archivo del CV NUNCA se guarda en nuestros servidores ni en base de datos.</strong> Se procesa en memoria durante la extracción y se descarta inmediatamente; el texto pegado tampoco se conserva.</p>
           </section>
 
           <section>

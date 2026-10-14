@@ -527,7 +527,7 @@ paths:
 
   /api/cv/parse:
     post:
-      summary: Sube CV (PDF/DOCX), extrae texto y llama LLM para armar perfil
+      summary: Analiza un CV (PDF/DOCX o texto pegado) para armar el perfil
       security:
         - cookieAuth: []
       requestBody:
@@ -541,6 +541,16 @@ paths:
                 cv:
                   type: string
                   format: binary
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text:
+                  type: string
+                  minLength: 200
+                  maxLength: 20000
+                  description: Texto plano del CV (para omitir la lectura del archivo).
       responses:
         '200':
           description: Perfil extraído (NO guardado aún)
@@ -555,14 +565,14 @@ paths:
                     $ref: '#/components/schemas/Profile'
                   kind:
                     type: string
-                    enum: [pdf, docx]
+                    enum: [pdf, docx, text]
                   saved:
                     type: boolean
                     enum: [false]
         '400':
-          description: Sin archivo o archivo inválido
+          description: Falta archivo/texto, el texto es corto o el archivo no se puede leer
         '413':
-          description: Archivo > 5 MB
+          description: Archivo > 4 MB o texto > 20.000 caracteres
         '415':
           description: Tipo MIME no soportado (solo application/pdf, application/vnd.openxmlformats-officedocument.wordprocessingml.document)
         '429':

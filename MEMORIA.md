@@ -7,7 +7,7 @@ tabla de la API y qué falta); acá queda lo que **no se deduce del código**: e
 el diagnóstico del código heredado con su evidencia, las decisiones que se tomaron y lo que
 quedó abierto.
 
-Última actualización real: **2026-10-12** (fix `api/cv/parse.js` dedicado, commit d0cb131).
+Última actualización real: **2026-10-12** (diagnóstico de errores de CV y alternativa de pegar texto).
 Las actualizaciones anteriores fueron el andamiaje, `regions.js`, el paso 4 de la base de datos
 completo, el paso 5 de auth, el paso 6 (perfil por usuario), el paso 7 (onboarding), la pantalla
 de acceso, directorio de Argentina, Apify/LinkedIn, borrado de cuenta, guía de despliegue Vercel,
@@ -18,6 +18,33 @@ favoritos y build con Rspack/SWC.
 ## 0. DÓNDE QUEDAMOS — leé esto primero si volvés al proyecto
 
 **Todas las fases del plan están HECHAS y VERIFICADAS.**
+
+### Errores de CV y alternativa de pegar texto (2026-10-12)
+
+- `validateCvFile()` distingue ahora los tres estados de entrada que antes devolvían el
+  mismo `CV_VACIO`: no llegó una parte-archivo, llegaron metadatos sin un `Buffer`, o llegó
+  un archivo de 0 bytes. Los mensajes dan acciones distintas; no pretenden diagnosticar
+  por qué falló el transporte (por ejemplo, si la plataforma descartó el body antes de
+  invocar la función, el handler no puede observar la causa).
+- El máximo de archivo bajó de 5 a **4 MB** en backend y frontend. Vercel corta requests
+  de funciones alrededor de 4.5 MB; 4 MB más el overhead multipart reservado (64 KB)
+  permite responder 413 desde la aplicación para archivos grandes, en lugar de depender
+  de la respuesta de la plataforma.
+- `POST /api/cv/parse` admite además `application/json` con `{ "text": "..." }`. El texto
+  se normaliza igual que el texto extraído, requiere al menos 200 y como máximo 20.000
+  caracteres, y las dos validaciones corren **antes** de los rate limits; una entrada
+  rechazada no consume cuota ni tokens. La respuesta conserva `{ ok, profile, kind,
+  saved: false }`, con `kind: "text"` para esta vía. El perfil sigue sin persistirse hasta
+  `PUT /api/profile`.
+- La interfaz mantiene el consentimiento de privacidad para ambas vías y aclara que el
+  contenido se envía al proveedor configurado. El archivo no se guarda; el texto pegado
+  tampoco se persiste.
+- No se agregó OCR ni tolerancia especial a PDFs estructuralmente malformados. Si
+  `pdf-parse` rechaza el PDF, se recomienda volver a exportar el documento o pegar su
+  texto. Así se evita aceptar silenciosamente archivos dañados y no se altera el parser.
+- Verificación segura: tests unitarios locales, check, lint y build. No llamar el endpoint
+  contra un LLM real; para probar una ejecución completa debe usarse un OpenAI-compatible
+  falso local, porque el análisis se factura.
 
 ### Fix deploy 2026-10-12 — POST `/api/cv/parse` dedicado
 

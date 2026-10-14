@@ -367,64 +367,20 @@ export async function loadSession() {
   return { ok: false, reason: 'sin-respuesta' };
 }
 
-/**
- * Manda el CV al backend y devuelve el PERFIL DERIVADO, sin guardar
- * (`POST /api/cv/parse`).
- *
- * Los tres detalles que no son obvios de este endpoint:
- *
- *   · El campo del formulario tiene que llamarse `cv` (`parse.js:FIELD_NAME`), y
- *     es multipart con el archivo crudo.
- *   · NO se pone `Content-Type`. El navegador tiene que poner el `boundary` del
- *     multipart en ese header, y si se lo pone a mano (por ejemplo
- *     `multipart/form-data` a secas) el backend no encuentra el archivo y
- *     responde 400. Es el error clásico de este endpoint, y por eso el `body` va
- *     pelado: un `FormData` se manda solo.
- *   · SÍ lleva timeout, y es el único `fetch` del archivo que lo lleva. Acá se
- *     espera a un LLM de pago: el backend da 25 s al proveedor y su función de
- *     serverless tiene `maxDuration: 60`, así que 75 s es holgado para cualquier
- *     respuesta válida. Lo que va más allá de eso ya no es un LLM lento, es un
- *     backend colgado, y dejarlo esperando para siempre dejaría el botón en
- *     "Analizando tu CV…" sin salida.
- *
- * La respuesta 200 es `{ ok, profile, kind, saved: false }`. El `saved: false`
- * es lo importante: este perfil NO está en la base, existe solo en esta pantalla
- * hasta que el usuario revise y mande el `PUT /api/profile`.
- *
- * @param {File} file El `.pdf` o `.docx` elegido por el usuario.
- * @returns {Promise<{ok: true, profile: object, kind: string, saved: false}>}
- * @throws {Error} Con `status` 401, 400, 413, 415, 429, 502, 504 o 0.
- */
-export async function parseCv(file) {
-  const form = new FormData();
-  // ↑ `new FormData()` sin argumentos: la lista de partes se arma con `append`.
-  form.append('cv', file);
-  // ↑ El nombre de la parte ES el contrato con el backend. Con `File` entero
-  //   (no un string) para que vaya el archivo con su nombre y su tipo.
-
+async function submitCvForParsing(body, contentType) {
   let response;
   try {
-    response = await fetch('/api/cv/parse', {
-      // ↑ Ruta del archivo dedicado `api/cv/parse.js`, sin rewrite: el catch-all
-      //   no recibe slugs de dos segmentos en Vercel y el alias devolvía 404 de
-      //   plataforma. El resto de endpoints ya usan su destino.
+    const options = {
       method: 'POST',
-      body: form,
-      // ↑ SIN `headers`. Ver la nota de arriba: el `Content-Type` lo pone el
-      //   navegador con el `boundary` correcto, y pisarlo rompe el parseo.
+      body,
       signal: timeoutSignal(PARSE_TIMEOUT_MS),
-      // ↑ `AbortSignal.timeout` (no `setTimeout` + `clearTimeout`) porque además
-      //   ABORTA la request: si solo dejara de esperar, el upload seguiría
-      //   ocupando el socket en el fondo. Ver `timeoutSignal()`.
-    });
+      // ↑ `AbortSignal.timeout` también aborta el envío, para no dejar un upload
+      //   ocupando el socket si el backend o el proveedor se cuelgan.
+    };
+    if (contentType) options.headers = { 'Content-Type': contentType };
+    response = await fetch('/api/cv/parse', options);
   } catch (err) {
-    // ↑ Ni siquiera hubo respuesta. `status: 0` para que la UI lo distinga de un
-    //   rechazo del backend (415, 429...) y no le pida al usuario que arregle un
-    //   archivo que el problema no es el archivo.
     if (err?.name === 'TimeoutError') {
-      // El 504 se elige para que el cliente y el servidor usen el MISMO código
-      // para "el proveedor no respondió a tiempo": `cv/parse.js` devuelve 504 en
-      // ese caso, y así el frontend no necesita dos textos para lo mismo.
       throw apiError(504, null, 'El análisis del CV tardó demasiado y lo cortamos. Volvé a intentarlo en un momento.');
     }
     throw apiError(0, null, 'No se pudo conectar con el backend. ¿Está corriendo el server?');
@@ -437,6 +393,29 @@ export async function parseCv(file) {
     throw apiError(response.status, data, 'No se pudo analizar tu CV.');
   }
   return data;
+}
+
+/**
+ * Analiza un PDF o DOCX y devuelve el perfil derivado sin guardarlo.
+ * `FormData` define el Content-Type y su boundary: no agregar ese header a mano.
+ *
+ * @param {File} file El archivo elegido por el usuario.
+ * @returns {Promise<{ok: true, profile: object, kind: string, saved: false}>}
+ */
+export async function parseCv(file) {
+  const form = new FormData();
+  form.append('cv', file);
+  return submitCvForParsing(form, null);
+}
+
+/**
+ * Analiza texto pegado sin tener que exportarlo primero a PDF o DOCX.
+ *
+ * @param {string} text El texto plano del CV.
+ * @returns {Promise<{ok: true, profile: object, kind: 'text', saved: false}>}
+ */
+export async function parseCvText(text) {
+  return submitCvForParsing(JSON.stringify({ text }), 'application/json');
 }
 
 /**

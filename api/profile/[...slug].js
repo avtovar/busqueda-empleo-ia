@@ -13,7 +13,13 @@
 import { requireProfile, requireSession, HttpError, ConfigError } from '../../lib/auth-fetch.js';
 import { loadProfileSkills, normalizeProfile, normalizeSkills, saveProfile } from '../../lib/profile.js';
 import { asText, toNumber } from '../../lib/text.js';
-import { MAX_CV_BYTES, extractCvText, validateCvFile } from '../../lib/cvText.js';
+import {
+  MAX_CV_BYTES,
+  MAX_CV_TEXT_CHARS,
+  extractCvText,
+  validatePastedCvText,
+  validateCvFile,
+} from '../../lib/cvText.js';
 import { assertCvParseAllowed } from '../../lib/cvParseLimit.js';
 import { parseCvToProfile } from '../../lib/llm.js';
 import { checkGlobalDailyLimit, recordGlobalUsage } from '../../lib/globalLimit.js';
@@ -21,7 +27,7 @@ import { checkGlobalDailyLimit, recordGlobalUsage } from '../../lib/globalLimit.
 export const config = { maxDuration: 60 };
 
 const BASE_PATH = '/api/profile';
-const MAX_CV_TEXT_CHARS = 20_000;
+const MAX_CV_TEXT_BODY_BYTES = 128 * 1024;
 
 // ════════════════════════════════════════════════════════════════════════════
 // CONSTANTES Y HELPERS DEL ENDPOINT /api/profile (GET/PUT)
@@ -476,19 +482,49 @@ async function handleParseCv(req) {
   console.log(`[API HIT] POST /api/cv/parse — usuario ${user.id}`);
   console.log(`[API CONTENT-LENGTH] ${req.headers.get('content-length')}`);
 
-  const contentLength = req.headers.get('content-length');
-  if (contentLength && parseInt(contentLength, 10) > MAX_MULTIPART_BYTES) {
-    return errorResponse(`El CV es demasiado grande. El máximo son ${MAX_CV_BYTES / (1024 * 1024)} MB.`, 413);
+  const contentType = req.headers.get('content-type') || '';
+  const isJson = /^\s*application\/json\s*(;|$)/i.test(contentType);
+  let cvText;
+  let kind;
+
+  if (isJson) {
+    const contentLength = Number(req.headers.get('content-length'));
+    if (Number.isFinite(contentLength) && contentLength > MAX_CV_TEXT_BODY_BYTES) {
+      throw new HttpError(
+        413,
+        `El texto del CV no puede superar los ${MAX_CV_TEXT_CHARS.toLocaleString('es-AR')} caracteres.`,
+      );
+    }
+
+    let body;
+    try {
+      body = await req.json();
+    } catch {
+      throw new HttpError(400, 'El texto del CV tiene que enviarse como JSON válido.');
+    }
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      throw new HttpError(400, 'No recibimos el texto del CV. Pegalo en el campo de texto y probá de nuevo.');
+    }
+    cvText = validatePastedCvText(body.text);
+    kind = 'text';
+  } else {
+    const contentLength = req.headers.get('content-length');
+    if (contentLength && parseInt(contentLength, 10) > MAX_MULTIPART_BYTES) {
+      throw new HttpError(
+        413,
+        `El CV es demasiado grande. El máximo son ${MAX_CV_BYTES / (1024 * 1024)} MB.`,
+      );
+    }
+
+    const file = await readCvFile(req);
+    console.log(`[API READ FILE] file: ${file ? 'tiene buffer: ' + (file?.buffer?.length > 0 ? file.buffer.length : 0) + ' bytes' : 'NULL'} `);
+    validateCvFile(file);
+    console.log(`[API VALIDATE] passed - tipo: ${file?.mimetype || 'N/A'}, size: ${file?.buffer?.length || 0} bytes`);
+    ({ text: cvText, kind } = await extractCvText(file));
   }
 
   await assertCvParseAllowed(user.id);
   await checkGlobalDailyLimit('cv');
-
-  const file = await readCvFile(req);
-  console.log(`[API READ FILE] file: ${file ? 'tiene buffer: ' + (file?.buffer?.length > 0 ? file.buffer.length : 0) + ' bytes' : 'NULL'} `);
-  validateCvFile(file);
-  console.log(`[API VALIDATE] passed - tipo: ${file?.mimetype || 'N/A'}, size: ${file?.buffer?.length || 0} bytes`);
-  const { text: cvText, kind } = await extractCvText(file);
 
   const profile = await parseCvToProfile(textForLlm(cvText));
 

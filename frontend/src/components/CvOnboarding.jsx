@@ -30,7 +30,7 @@ import { useEffect, useRef, useState } from 'react';
 //   formulario, `useRef` para el input de archivo y `useState` para los tres
 //   estados del flujo (elegir → leyendo → revisar → guardando).
 
-import { parseCv, saveProfile } from '../api.js';
+import { parseCv, parseCvText, saveProfile } from '../api.js';
 // ↑ Las dos funciones de la capa de API del paso 7. El componente NO hace
 //   `fetch`: si mañana cambia una URL o el manejo de errores, se cambia acá y no
 //   en tres lugares.
@@ -44,16 +44,17 @@ import PrivacyNotice from './PrivacyNotice.jsx';
 //   el CV por primera vez (cuando no hay perfil). El usuario debe leerlo y dar
 //   su consentimiento para que el texto del CV viaje al LLM.
 
-// ── El tope de tamaño, repetido acá a propósito ───────────────────────────────
-// Es el MISMO número que `MAX_CV_BYTES` de `lib/cvText.js`. No se importa, y
+// ── Los topes de entrada, repetidos acá a propósito ───────────────────────────
+// Son los mismos que `lib/cvText.js`. No se importa ese módulo, y
 // no es descuido: ese módulo es de Node (usa `Buffer`, streams y carga
 // `pdf-parse`/`mammoth` al vuelo), así que meterlo en el bundle del navegador
 // rompe el build del frontend. El valor está duplicado y el BACKEND vuelve a validarlo
-// igual (`validateCvFile`): lo de acá es solo para dar el error al instante, sin
-// subir 8 MB por la red para que el servidor diga lo mismo. El que manda es el
-// del servidor; esta es cortesía.
-const MAX_CV_BYTES = 5 * 1024 * 1024;
+// igual: lo de acá evita enviar una solicitud que el servidor o Vercel va a
+// rechazar de todos modos.
+const MAX_CV_BYTES = 4 * 1024 * 1024;
 const MAX_MB_LABEL = `${MAX_CV_BYTES / (1024 * 1024)} MB`;
+const MIN_CV_TEXT_CHARS = 200;
+const MAX_CV_TEXT_CHARS = 20_000;
 
 // Extensiones y MIME que se aceptan. Mismos valores que
 // `ACCEPTED_EXTENSIONS` / `ACCEPTED_MIME_TYPES` del backend, por el mismo motivo
@@ -200,6 +201,8 @@ export default function CvOnboarding({ profile, onSaved, onCancel, onDeleteAccou
   //   El usuario debe aceptar para poder subir el CV.
 
   const [archivo, setArchivo] = useState(null);
+  const [modoEntrada, setModoEntrada] = useState('archivo');
+  const [textoCv, setTextoCv] = useState('');
   const [borrador, setBorrador] = useState(() => toDraft(profile));
   // ↑ `toDraft(profile)` como función perezosa de useState: corre SOLO al
   //   montar. Con un objeto literal el cálculo correría en cada render.
@@ -265,6 +268,13 @@ export default function CvOnboarding({ profile, onSaved, onCancel, onDeleteAccou
     }
   }
 
+  function cambiarModoEntrada(modo) {
+    setModoEntrada(modo);
+    setError(null);
+    setArchivo(null);
+    if (inputArchivo.current) inputArchivo.current.value = '';
+  }
+
   // Descarta el archivo recién elegido y deja el input VACÍO, con el motivo a la vista.
   // ↑ El `input.value = ''` es la parte que parece un detalle y es la que hace que
   //   esto sea recuperable: con el valor puesto, elegir de nuevo el MISMO archivo
@@ -278,14 +288,16 @@ export default function CvOnboarding({ profile, onSaved, onCancel, onDeleteAccou
 
   // ── Pedir el análisis del CV ────────────────────────────────────────────────
   async function analizar() {
-    if (!archivo || fase === 'leyendo') return;
+    if ((modoEntrada === 'archivo' && !archivo) || fase === 'leyendo') return;
     setFase('leyendo');
     setError(null);
     // ↑ El error se borra al reintentar: si no, el mensaje del intento anterior
     //   queda abajo del botón de "volver a intentar" y parece el error nuevo.
 
     try {
-      const data = await parseCv(archivo);
+      const data = modoEntrada === 'archivo'
+        ? await parseCv(archivo)
+        : await parseCvText(textoCv);
       setBorrador(toDraft(data.profile));
       setFase('revisar');
       // ↑ `data.profile`, NO el `draft` que se arme acá: lo que vuelve del LLM ya
@@ -380,6 +392,9 @@ export default function CvOnboarding({ profile, onSaved, onCancel, onDeleteAccou
   // ── Lo que se muestra ───────────────────────────────────────────────────────
 
   const ocupado = fase === 'leyendo' || fase === 'guardando';
+  const puedeAnalizar = modoEntrada === 'archivo'
+    ? Boolean(archivo)
+    : textoCv.trim().length >= MIN_CV_TEXT_CHARS;
   // ↑ Un solo booleano para los dos estados "esperar": mientras está ocupado no
   //   se puede tocar nada, porque una doble pulsación en el `PUT` mandaría el
   //   perfil dos veces y en el `POST` pagaría dos análisis.
@@ -447,42 +462,84 @@ export default function CvOnboarding({ profile, onSaved, onCancel, onDeleteAccou
       {fase === 'elegir' ? (
         <div className="cv-step">
           <p className="cv-help">
-            Subí tu CV en PDF o Word (.docx). No se guarda el archivo: se lee en el
-            momento para armar tu perfil, y lo único que queda guardado son los
-            datos de abajo.
+            Subí tu CV en PDF o Word (.docx), o pegá su texto. El archivo no se
+            guarda; el texto se procesa en el momento para armar tu perfil, y lo
+            único que queda guardado son los datos de abajo.
             {/* ↑ Se dice explícitamente que el archivo NO se guarda: es la
                 decisión de privacidad del proyecto (no hay almacenamiento de CVs)
                 y es lo que la persona espera que pase. */}
           </p>
 
-          <label className="cv-file-label" htmlFor="cv-file">Archivo del CV</label>
-          <input
-            id="cv-file"
-            ref={inputArchivo}
-            type="file"
-            accept={ACCEPT_ATTR}
-            onChange={elegirArchivo}
-            disabled={ocupado}
-            className="cv-file"
-          />
-          {/* ↑ El `accept` NO es una validación: el explorador deja elegir
-              "todos los archivos" igual. Por eso `elegirArchivo` vuelve a mirar
-              la extensión. El backend es el que de verdad valida. */}
+          <div className="cv-input-modes" role="group" aria-label="Cómo cargar tu CV">
+            <button
+              type="button"
+              className={`btn secondary${modoEntrada === 'archivo' ? ' activo' : ''}`}
+              aria-pressed={modoEntrada === 'archivo'}
+              onClick={() => cambiarModoEntrada('archivo')}
+              disabled={ocupado || mostrarPrivacidad}
+            >
+              Subir archivo
+            </button>
+            <button
+              type="button"
+              className={`btn secondary${modoEntrada === 'texto' ? ' activo' : ''}`}
+              aria-pressed={modoEntrada === 'texto'}
+              onClick={() => cambiarModoEntrada('texto')}
+              disabled={ocupado || mostrarPrivacidad}
+            >
+              Pegar texto
+            </button>
+          </div>
 
-          {archivo && (
-            <p className="cv-file-info">
-              {archivo.name} · {(archivo.size / 1024 / 1024).toFixed(2)} MB
-              {/* ↑ Se muestra el tamaño REAL del archivo elegido, porque el
-                  único error que se ve al instante es "demasiado grande" y el
-                  explorador de archivos del navegador no lo dice. */}
-            </p>
+          {modoEntrada === 'archivo' ? (
+            <>
+              <label className="cv-file-label" htmlFor="cv-file">Archivo del CV</label>
+              <input
+                id="cv-file"
+                ref={inputArchivo}
+                type="file"
+                accept={ACCEPT_ATTR}
+                onChange={elegirArchivo}
+                disabled={ocupado || mostrarPrivacidad}
+                className="cv-file"
+              />
+              {/* ↑ El `accept` filtra el selector, pero el servidor valida de nuevo
+                  el tipo y el contenido. El límite de 4 MB también deja margen
+                  bajo el límite de body de Vercel. */}
+
+              {archivo && (
+                <p className="cv-file-info">
+                  {archivo.name} · {(archivo.size / 1024 / 1024).toFixed(2)} MB
+                </p>
+              )}
+            </>
+          ) : (
+            <div className="cv-field">
+              <label htmlFor="cv-pasted-text">Texto de tu CV</label>
+              <textarea
+                id="cv-pasted-text"
+                rows={10}
+                value={textoCv}
+                onChange={(e) => {
+                  setTextoCv(e.target.value);
+                  setError(null);
+                }}
+                maxLength={MAX_CV_TEXT_CHARS}
+                disabled={ocupado || mostrarPrivacidad}
+                placeholder="Pegá acá el texto completo de tu CV…"
+              />
+              <p className="cv-help" aria-live="polite">
+                Mínimo {MIN_CV_TEXT_CHARS} y máximo {MAX_CV_TEXT_CHARS.toLocaleString('es-AR')} caracteres.
+                {' '}{textoCv.length.toLocaleString('es-AR')} / {MAX_CV_TEXT_CHARS.toLocaleString('es-AR')}
+              </p>
+            </div>
           )}
 
           <button
             type="button"
             className="btn"
             onClick={analizar}
-            disabled={!archivo || ocupado}
+            disabled={!puedeAnalizar || ocupado || mostrarPrivacidad}
             aria-busy={fase === 'leyendo'}
           >
             {fase === 'leyendo' ? '⏳ Analizando tu CV…' : 'Analizar mi CV'}
@@ -741,7 +798,7 @@ export default function CvOnboarding({ profile, onSaved, onCancel, onDeleteAccou
 
           <div className="cv-again">
             <button type="button" className="link-button" onClick={volverAEmpezar} disabled={ocupado}>
-              {esEditor ? 'Analizar otro CV' : 'Elegir otro archivo'}
+              {esEditor ? 'Analizar otro CV' : modoEntrada === 'texto' ? 'Cambiar texto' : 'Elegir otro archivo'}
             </button>
             <span className="cv-help">
               Volver a analizar usa otro análisis de tu cuota por hora.

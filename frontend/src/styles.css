@@ -159,6 +159,8 @@ body {
    deshabilitado. Ponerlo rojo haría pensar que algo salió mal. */
 
 .cv-step { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+.cv-input-modes { display: flex; flex-wrap: wrap; gap: 8px; }
+.cv-input-modes .activo { border-color: var(--accent); color: var(--accent); }
 .cv-file-label { font-size: 0.85rem; font-weight: 600; }
 .cv-file {
   /* ↑ El input de archivo nativo se ve distinto en cada sistema operativo, y en

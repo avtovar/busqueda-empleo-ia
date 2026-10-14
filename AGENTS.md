@@ -575,7 +575,7 @@ pantalla de acceso (401), en el onboarding del CV (403) o entra a la app (200).
 | `GET` | `/api/me` | `requireSession` | `{ user, profileComplete }`. **Es el que decide a dónde va el usuario**: 200 siempre, nunca 403 |
 | `GET` | `/api/profile` | **`requireProfile`** | el perfil del contrato, plano (sin envoltorio). 403 si falta el CV |
 | `PUT` | `/api/profile` | `requireSession` | `{ ok, profileComplete, profile }`. Es **reemplazo**, no parche: lo que no viene en el body se borra |
-| `POST` | `/api/cv/parse` | `requireSession` | `{ ok, profile, kind, saved: false }`. **Único** que llama a un LLM de pago |
+| `POST` | `/api/cv/parse` | `requireSession` | `{ ok, profile, kind, saved: false }`. Acepta multipart `cv` (PDF/DOCX hasta 4 MB) o JSON `{ text }` (200–20.000 caracteres). **Único** que llama a un LLM de pago |
 | `DELETE` | `/api/account` | `requireSession` | `{ ok: true }` + cookie con `Max-Age=0`. Audita la baja en la misma transacción que el `delete`, y **no** pide perfil: una cuenta sin CV se puede borrar |
 | `GET` | `/api/jobs?region=` | **`requireProfile`** | `{ region, jobs, total, _online, source, checkedAt }`. El primero que ve ofertas reales |
 | `GET` | `/api/job?q=` | **`requireProfile`** | `{ job, summary }`. `summary` es el `summarize()` de `coverLetter.js` y **puede ser `null`** |
@@ -720,7 +720,8 @@ que `FALLBACK.jobs` queda solo para cuando el backend no responde (server caído
 todavía en curso). Ver abajo.
 
 El **paso 7 (onboarding) está HECHO y VERIFICADO de las dos mitades**: la de backend son
-`lib/cvText.js` (validación MIME/tamaño + extracción de PDF/DOCX en memoria), `lib/llm.js`
+`lib/cvText.js` (validación MIME/tamaño + extracción de PDF/DOCX en memoria, además de
+normalizar texto pegado), `lib/llm.js`
 (el único módulo que habla con el proveedor, con recorte de entrada y tope de salida) y
 **`cv_parses`** (migración `010`) con `lib/cvParseLimit.js`, llamado desde `api/profile/[...slug].js`
 paso 6. Verificado con `npm run check` (22 archivos), `npm run build` (43 módulos), las 10
@@ -760,6 +761,10 @@ Ojo con cuatro decisiones de esa capa, que no se deducen del código:
 - **La compuerta se abre con `profileComplete === false` del `/api/me`, NO con `!profile`.**
   `loadProfile()` devuelve `null` tanto por un 403 real como por una llamada que falló, y con
   `!profile` un problema de red pintaba "subí tu CV" a alguien que ya lo subió.
+- **El parseo acepta archivo o texto pegado**: PDF/DOCX hasta 4 MB (el margen evita superar
+  el límite de 4.5 MB del body de Vercel contando multipart) o texto de 200 a 20.000
+  caracteres. Ambos caminos pasan por la misma cuota antes del LLM; las entradas inválidas
+  no consumen cuota.
 - **Las dos escrituras del alta llevan `AbortSignal.timeout`** (75 s el parseo, 30 s el PUT) y
   las de lectura no. Las de lectura tienen `FALLBACK`, así que colgar no rompe nada; en el
   alta, colgar deja el botón en "Analizando tu CV…" para siempre, y en el parseo se está
